@@ -1,0 +1,1848 @@
+---
+title: "Silviculture simplifies anuran-prey networks and reduces niche overlap"
+author: "Augusto Carvalho, Rosana Paschoalino, Matthew Hutchinson & Marcio R. C. Martins"
+date: "`r Sys.Date()`"
+output: 
+  html_document: 
+    highlight: tango
+    theme: journal
+    number_sections: true
+    df_print: tibble
+    toc: true
+    fig_height: 7
+    css: styles.css
+bibliography: references.json
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, fig.align = "center")
+library(rbbt)
+```
+
+# Predator Behavior Shapes Anuran-Prey Networks across environments
+
+This file was created as to organize the codes used for results presented at the 32nd SIICUSP
+
+```{r library, echo=T, message=FALSE, warning=FALSE, results="hide"}
+library(tidyverse)
+library(bipartite)
+library(vegan)
+library(viridis)
+library(ggplot2)
+library(cowplot)
+library(gridExtra)
+library(lme4)
+library(lmerTest)
+```
+
+## Community characteristics
+
+```{r Species & Color}
+# This are the colors that are suposed to be used when comparing Mata and Eucalyptus
+env_cl = c("#4fb7d2ff", "#EE442f")
+# This are the colors that are suposed to be used when comparing Mata1 Mata2 and Eucalyptus
+env_compare_cl = c("#4fb7d2ff","#2445a5ff", "#EE442f")
+
+# Only > 5 PIS species
+spp = list(
+  eu = colnames(as.matrix(read.csv("Data/vol_eu_diet_matrix_final.csv", header = T, row.names = 1,
+                                   check.names = FALSE))) %>% unique(),
+  mt = colnames(as.matrix(read.csv("Data/vol_mt_diet_matrix_final.csv", header = T, row.names = 1,
+                                   check.names = FALSE))) %>% unique()
+)
+spp$beta = spp$mt[spp$mt %in% spp$eu]
+```
+
+### Anuran community characteristics
+
+To look into **anuran community composition**, we looked to the species with prey item n \> 5 for each environment.
+Each point is an individual site, with colors representing the environments.
+This, results into the following NMDS plot
+
+```{r AnuranCommNMDS, message=FALSE, warning=FALSE, results='hide'}
+data_spp_site = read.csv("Data/species_site_matrix.csv", header=T, row.names=NULL)
+
+sample_lookup = data_spp_site %>% 
+  select(sites) %>%
+  mutate(environment = str_replace(sites,
+                                   "(.).*",
+                                   "\\1"))
+sample_lookup = sample_lookup[order(sample_lookup$sites), ]
+
+# Ensure data_sample_eu rows match the order of sample_lookup$Code or adjust as needed
+data_spp_site = column_to_rownames(data_spp_site, var = "sites")
+dist_matrix_env = vegdist(data_spp_site[order(rownames(data_spp_site)), ])
+# ADONIS
+ad_env = adonis2(dist_matrix_env ~ environment, 
+                       data = sample_lookup,
+                       permutations = 10000)
+pF = ad_env$F[1]
+R2 = ad_env$R2[1] 
+p_value = ad_env$`Pr(>F)`[1]
+
+set.seed(1)
+nmds = metaMDS(data_spp_site)
+
+stress <- nmds$stress
+```
+
+```{r AnuranNMDSPlot, fig.height=132/25.4, fig.width=140/25.4, message=FALSE, warning=FALSE}
+scores(nmds)$sites %>%
+  as_tibble(rownames = "sites") %>%
+  inner_join(., sample_lookup, by="sites") %>%
+  mutate(env = if_else(environment == "M", "Atlantic Forest", "Eucalyptus")) %>%
+  ggplot(aes(x=NMDS1, y=NMDS2, color=env), show.legend = FALSE) +
+  geom_jitter(size = 2, show.legend = FALSE) +
+  scale_color_manual(values = env_cl)+
+
+  annotate('text', x = -1.6, y = -1.2, hjust = 0, vjust = 0, parse=TRUE, 
+         label = paste("stress == ", round(stress, digits = 2), sep = ""), size = 5)+
+  annotate('text', x = -1.6, y = -1.4, hjust = 0, vjust = 0, parse = TRUE, 
+           label = paste("perMANOVA~", "italic(r)^2 == ", round(R2, 2),"~italic(',')","~italic(p)~",
+                         ifelse(round(p_value, digits = 4) < 0.001,'"< 0.001"',
+                                paste("", round(p_value, digits = 3))), sep = ""), size = 5) +
+  xlab("NMDS1")+ 
+  ylab("NMDS2")+
+  theme_cowplot(font_size = 16, font_family = "Helvetica")+
+  theme(legend.title = element_blank()) +
+  panel_border(colour = "black", size=1)
+```
+
+To look into **anuran diversity** we used the Shannon Diversity index $H$ [@shannon48].
+We looked at the diversity present in each site, as well as in the environment as a whole.
+This results in the following boxplots:
+
+```{r AnuranShannonDiversity, fig.height=132/25.4, fig.width=140/25.4}
+data_spp_site_env = data_spp_site %>% 
+  mutate(environment = str_replace(rownames(data_spp_site),
+                                   "(.).*",
+                                   "\\1"))
+
+an_comm_mt = filter(data_spp_site_env, environment == "M") %>% select(-environment)
+an_sh_sites_mt = diversity(an_comm_mt) # Each site diversity
+an_sh_total_mt = diversity(colSums(an_comm_mt)) # Total diversity
+
+an_comm_eu = filter(data_spp_site_env, environment == "E") %>% select(-environment)
+an_sh_sites_eu = diversity(an_comm_eu) # Each site diversity
+an_sh_total_eu = diversity(colSums(an_comm_eu)) # Total diversity
+
+an_sh_df = data.frame(Env = c(rep("Atlantic Forest", length(an_sh_sites_mt)),
+                              rep("Eucalyptus", length(an_sh_sites_eu)) ),
+                      sh = c(an_sh_sites_mt, an_sh_sites_eu)
+                      )
+an_sh_df = an_sh_df[sort(rownames(an_sh_df)),]
+# Create a Data frame that stores the H value for the entire environment
+an_sh_total = data.frame(Env = c("Atlantic Forest", "Eucalyptus"), sh = c(an_sh_total_mt ,an_sh_total_eu))
+
+### Boxplot Anuran Diversity
+an_sh_plot = ggplot(an_sh_df, aes(x = Env, y = sh, fill=Env, col=Env)) +
+  geom_boxplot(alpha=0.2, outliers = FALSE, position = "dodge2") +  # Create the boxplot
+  geom_point(position = position_jitterdodge(dodge.width = 0.75, jitter.width = 0.15),
+             size = 2, shape = 16, alpha = 0.2)+ # Plot all individual points
+  geom_point(position = position_dodge2(width = 0.75),
+             data = an_sh_total, aes(x = Env, y = sh),
+             shape = 18, size = 3, colour = "black",   show.legend = FALSE) +
+  scale_fill_manual(values = env_cl) +
+  scale_color_manual(values = env_cl) + 
+  xlab("Environments")+ 
+  ylab(bquote("Shannon Diversity"~italic("H'")))+
+  ggtitle('')+
+  theme_cowplot(font_size = 16, font_family = "Helvetica")+ 
+  theme(
+    legend.title = element_blank(),
+    legend.position = c(0.99, 0.99),
+    legend.justification = c(1,1))
+
+print(an_sh_plot)
+
+```
+
+```{r AnuranShannonDiversityAnova, results='hold'}
+sites_grouping = c("B","B","B","B","A","A","A","C","C","D",
+                   "C","C","C","C","C","B","B","B","B","B",
+                   "B","B", "C","C", "E", "E")
+an_sh_df = an_sh_df %>%
+  mutate(sites = sites_grouping)
+an_sh_model = lmer(sh ~ Env+(1|sites), data = an_sh_df)
+
+cat("ANOVA Summary\n")
+cat("```\n")
+summary(an_sh_model)
+cat("\n```")
+```
+
+To look into **anuran abundance** across both environments we looked at the abundance present in each site sampled.
+
+```{r AnuranAbundance, fig.height=132/25.4, fig.width=140/25.4}
+an_abund_total_mt = filter(data_spp_site_env, environment == "M") %>%
+  select(-environment) %>%
+  rowSums()
+
+an_abund_total_eu = filter(data_spp_site_env, environment == "E") %>%
+  select(-environment) %>%
+  rowSums()
+  
+an_abund_df = data.frame(Env = c(rep("Atlantic Forest", length(an_abund_total_mt)),
+                              rep("Eucalyptus", length(an_abund_total_eu)) ),
+                      abund = c(an_abund_total_mt, an_abund_total_eu))
+
+### Boxplot Anuran Abundance
+an_abund_plot = ggplot(an_abund_df, aes(x = Env, y = abund, fill=Env, col=Env)) +
+  geom_boxplot(alpha=0.2, outliers = FALSE, position = "dodge2") +  # Create the boxplot
+  geom_point(position = position_jitterdodge(dodge.width = 0.75, jitter.width = 0.15),
+             size = 2, shape = 16, alpha = 0.2)+ # Plot all individual points
+  scale_fill_manual(values = env_cl) +
+  scale_color_manual(values = env_cl) + 
+  xlab("Environments")+ 
+  ylab("Anuran Abundance")+
+  ggtitle('')+
+  theme_cowplot(font_size = 16, font_family = "Helvetica")+ 
+  theme(
+    legend.title = element_blank(),
+    legend.position = c(0.99, 0.99),
+    legend.justification = c(1,1))
+
+print(an_abund_plot)
+```
+
+```{r AnuranAbundanceAnova, results='hold'}
+sites_grouping = c("B","B","B","B","A","A","A","C","C","D",
+                   "C","C","C","C","C","B","B","B","B","B",
+                   "B","B", "C","C", "E", "E")
+an_abund_df = an_abund_df %>%
+  mutate(sites = sites_grouping)
+an_abund_model = glmer(abund ~ Env+(1|sites), data = an_abund_df,
+                  family = "poisson")
+
+cat("ANOVA Summary\n")
+cat("```\n")
+summary(an_abund_model)
+cat("\n```")
+```
+
+To look into **anuran traits** across both environments we compared anuran mouth width (MW) and snout-vent length (SVL).
+Beyond this, we will we comparing not just Atlantic Forest species against Eucalyptus, but also the subset of species in Atlantic Forest that are in Eucalyptus.
+
+```{r AnuranSizeTraits, message=FALSE, warning=FALSE}
+an_metrics = read.csv("Data/Data_filt_MW_SVL.csv", header=T, dec= ",", row.names = NULL) %>%
+  filter(Ind.Volume != 0) %>%
+  mutate(Weight = as.numeric(gsub(",", ".", Weigh))) %>%
+  mutate(LogWeight = log2(Weight))
+
+# Only > 5 PIS species
+an_metrics = an_metrics %>%
+  filter((Species %in% spp$eu & Environment == "eucalipto") | (Species %in% spp$mt & Environment == "mata")
+) %>%
+  select(1:4,7,16,17)  %>% 
+  distinct() %>%
+   mutate(Environment = factor(Environment))
+
+an_metrics_mean = an_metrics %>%
+  group_by(Species, Environment) %>%
+  summarise(
+    MW = mean(MW),
+    SVL = mean(SVL)
+  ) %>% ungroup()
+
+# Organize Data Frame for plotting
+an_metrics_mean_df = data.frame(
+  Species = c(
+    filter(an_metrics_mean, (Species %in% spp$mt& Environment == "mata")) %>% 
+      select(Species) %>% as.vector() %>% unlist(),
+    filter(an_metrics_mean, (Species %in% spp$eu & Environment == "eucalipto")) %>% select(Species) %>% 
+      as.vector()%>% unlist() ), 
+  MW = c(
+    filter(an_metrics_mean, (Species %in% spp$mt & Environment == "mata")) %>% 
+      select(MW) %>% as.vector() %>% unlist(),
+    filter(an_metrics_mean, (Species %in% spp$eu & Environment == "eucalipto")) %>% select(MW) %>% 
+      as.vector() %>% unlist() ),
+  SVL = c(
+    filter(an_metrics_mean, (Species %in% spp$mt & Environment == "mata")) %>% 
+      select(SVL) %>% as.vector() %>% unlist(),
+    filter(an_metrics_mean, (Species %in% spp$eu & Environment == "eucalipto")) %>% select(SVL) 
+    %>% as.vector() %>% unlist() ),
+  Env = c(
+    rep("Atlantic Forest", dim(filter(an_metrics_mean,
+                                      (Species %in% spp$mt & Environment == "mata")))[1]),
+    rep("Eucalyptus", dim(filter(an_metrics_mean, 
+                                      (Species %in% spp$eu & Environment == "eucalipto")))[1]) )
+)
+```
+
+```{r AnuraSizePlots, fig.height=140/25.4, fig.width=280/25.4}
+### Mouth Width
+means = aggregate(MW ~ Env, data = an_metrics_mean_df, FUN = mean)
+p_MW = ggplot(an_metrics_mean_df, aes(x = Env, y = MW, col = Env, fill = Env)) + 
+  # Create the boxplot
+  geom_boxplot(alpha=0.2, outliers = FALSE, position = "dodge2") +
+  # Plot all individual points
+  geom_point(size = 2, shape = 16, alpha = 0.2)+ 
+  geom_point(data = means, aes(x = Env, y = MW),
+             shape = 18, size = 3, colour = "black", show.legend = FALSE) +
+  scale_fill_manual(values = env_cl) +
+  scale_color_manual(values = env_cl) + 
+  xlab("")+ 
+  ylab(bquote("Mouth Width"~italic("mm")))+
+  ggtitle('')+
+  theme_cowplot(font_size = 16, font_family = "Helvetica")+ 
+  theme(
+    legend.title = element_blank(),
+    legend.position = c(0.05, 1), 
+    legend.justification = c(0, 1)) 
+
+### Snout Vent Lenght
+means = aggregate(SVL ~ Env, data = an_metrics_mean_df, FUN = mean)
+p_SVL = ggplot(an_metrics_mean_df, aes(x = Env, y = SVL, col = Env, fill = Env)) +
+  # Create the boxplot
+  geom_boxplot(alpha=0.2, outliers = FALSE, position = "dodge2", show.legend = FALSE) +
+  # Plot all individual points
+  geom_point(size = 2, shape = 16, alpha = 0.2, show.legend = FALSE)+ 
+  geom_point(data = means, aes(x = Env, y = SVL),
+             shape = 18, size = 3, colour = "black", show.legend = FALSE) +
+  scale_fill_manual(values = env_cl) +
+  scale_color_manual(values = env_cl) + 
+  xlab("")+ 
+  ylab(bquote("Snout-Vent-Lenght"~italic("mm")))+
+  ggtitle('')+
+  theme_cowplot(font_size = 16, font_family = "Helvetica")+ 
+  theme(
+    legend.title = element_blank())
+
+plot_grid(p_MW,p_SVL)
+```
+
+```{r AnuraSizeAnova, results='hold'}
+MW_model = aov(MW ~ Env, data = an_metrics_mean_df)
+SVL_model = aov(SVL ~ Env, data = an_metrics_mean_df)
+
+cat("ANOVA MW Summary\n")
+summary(MW_model)
+cat("ANOVA SVL Summary\n")
+summary(SVL_model)
+cat("\n```")
+```
+
+```{r AnuraSizePairwiseTtest, results='hold'}
+MW_pair = data.frame(
+  Species = spp$beta,
+  MT = c(filter(an_metrics_mean, (Species %in% spp$beta & Environment == "mata")) %>% 
+      select(MW) %>% as.vector() %>% unlist()),
+  EU = c(filter(an_metrics_mean, (Species %in% spp$beta & Environment == "eucalipto")) %>% 
+      select(MW) %>% as.vector() %>% unlist())
+     )
+
+MW_res = t.test(MW_pair$MT, MW_pair$EU, mu = 0, alternative = "two.sided", paired = TRUE)
+print(MW_res)
+
+SVL_pair = data.frame(
+  Species = spp$beta,
+  MT = c(filter(an_metrics_mean, (Species %in% spp$beta & Environment == "mata")) %>% 
+      select(SVL) %>% as.vector() %>% unlist()),
+  EU = c(filter(an_metrics_mean, (Species %in% spp$beta & Environment == "eucalipto")) %>% 
+      select(SVL) %>% as.vector() %>% unlist())
+     )
+
+SVL_res = t.test(SVL_pair$MT, SVL_pair$EU, mu = 0, alternative = "two.sided", paired = TRUE)
+print(SVL_res)
+```
+
+Importance of testing size variation inside species that occur in both environments
+
+```{r AnuranSizeTraits Intraspecific, fig.height=7, fig.width=10}
+# Organize Data Frame for plotting
+an_metrics_df = data.frame(
+  Species = c(
+    filter(an_metrics, (Species %in% spp$mt & Environment == "mata")) %>% 
+      select(Species) %>% as.vector() %>% unlist(),
+    filter(an_metrics, (Species %in% spp$eu & Environment == "eucalipto")) %>% 
+      select(Species) %>% as.vector()%>% unlist() ), 
+  MW = c(
+    filter(an_metrics, (Species %in% spp$mt & Environment == "mata")) %>% 
+      select(MW) %>% as.vector() %>% unlist(),
+    filter(an_metrics, (Species %in% spp$eu & Environment == "eucalipto")) %>% 
+      select(MW) %>% as.vector() %>% unlist() ),
+  SVL = c(
+    filter(an_metrics, (Species %in% spp$mt & Environment == "mata")) %>% 
+      select(SVL) %>% as.vector() %>% unlist(),
+    filter(an_metrics, (Species %in% spp$eu & Environment == "eucalipto")) %>% 
+      select(SVL) %>% as.vector() %>% unlist() ),
+  Env = c(
+    rep("Atlantic Forest", dim(filter(an_metrics,
+                                      (Species %in% spp$mt & Environment == "mata")))[1]),
+    rep("Eucalyptus", dim(filter(an_metrics, 
+                                      (Species %in% spp$eu & Environment == "eucalipto")))[1]) )
+)
+
+
+### Mouth Width with Individuals
+an_metrics_df_intra = filter(an_metrics_df, Species %in% spp$beta) %>%
+  mutate(Env = gsub(" Beta", "", Env)) %>%
+  mutate(Species = gsub("^(\\w)\\w+\\s", "\\1. ", Species)) %>%
+  mutate(Species = gsub("aff. ", "", Species))
+  
+means = aggregate(MW ~ Env*Species, data = an_metrics_df_intra, FUN = mean)
+p_intra_MW = ggplot(an_metrics_df_intra, aes(x = Species, y = MW, col = Env, fill = Env)) +
+  # Create the boxplot
+  geom_boxplot(alpha=0.2, outliers = FALSE, position = "dodge2") + 
+  # Plot all individual points
+  geom_point(position = position_jitterdodge(dodge.width = 0.75, jitter.width = 0.15),
+             size = 2, shape = 16, alpha = 0.2)+ 
+  # Plot Mean
+  geom_point(position = position_dodge2(width = 0.75),
+             data = means, aes(x = Species, y = MW),
+             shape = 18, size = 3, colour = "black", show.legend = FALSE) +
+  scale_fill_manual(values = env_cl) +
+  scale_color_manual(values = env_cl) + 
+  xlab("")+ 
+  ylab(bquote("Mouth Width"~italic("mm")))+
+  ggtitle('')+
+  theme_cowplot(font_size = 20, font_family = "Helvetica")+ 
+  theme(
+    legend.title = element_blank(),
+    legend.position = c(0.05, 1), 
+    legend.justification = c(0, 1)) 
+
+### Snout Vent Lenght with Individuals
+means = aggregate(SVL ~ Env*Species, data = an_metrics_df_intra, FUN = mean)
+p_intra_SVL = ggplot(an_metrics_df_intra, aes(x = Species, y = SVL, col = Env, fill = Env)) +
+  # Create the boxplot
+  geom_boxplot(alpha=0.2, outliers = FALSE, position = "dodge2",  show.legend = FALSE) +
+  # Plot all individual points
+  geom_point(position = position_jitterdodge(dodge.width = 0.75, jitter.width = 0.15),
+             size = 2, shape = 16, alpha = 0.2,  show.legend = FALSE)+
+  # Plot Mean
+  geom_point(position = position_dodge2(width = 0.75),
+             data = means, aes(x = Species, y = SVL),
+             shape = 18, size = 3, colour = "black", show.legend = FALSE) +
+  scale_fill_manual(values = env_cl) +
+  scale_color_manual(values = env_cl) + 
+  xlab("Species")+ 
+  ylab(bquote("Snout-Vent-Lenght"~italic("mm")))+
+  ggtitle('')+
+  theme_cowplot(font_size = 20, font_family = "Helvetica") 
+
+plot_grid(p_intra_MW,p_intra_SVL, nrow = 2)
+```
+
+```{r AnuranSizeTraitsTtest, results='hold'}
+
+MW_res = kruskal.test(MW ~ Env, data = an_metrics_df[an_metrics_df$Species == "Chiasmocleis mantiqueira",])
+print(MW_res)
+
+MW_res = kruskal.test(MW ~ Env, data = an_metrics_df[an_metrics_df$Species == "Ischnocnema guentheri",])
+print(MW_res)
+
+MW_res = kruskal.test(MW ~ Env, data = an_metrics_df[an_metrics_df$Species == "Ololygon obtriangulata",])
+print(MW_res)
+
+MW_res = kruskal.test(MW ~ Env, data = an_metrics_df[an_metrics_df$Species == "Physalaemus olfersii",])
+print(MW_res)
+
+MW_res = kruskal.test(MW ~ Env, data = an_metrics_df[an_metrics_df$Species == "Rhinella icterica",])
+print(MW_res)
+
+
+SVL_res = kruskal.test(SVL ~ Env, data = an_metrics_df[an_metrics_df$Species == "Chiasmocleis mantiqueira",])
+print(SVL_res)
+
+SVL_res = kruskal.test(SVL ~ Env, data = an_metrics_df[an_metrics_df$Species == "Ischnocnema guentheri",])
+print(SVL_res)
+
+SVL_res = kruskal.test(SVL ~ Env, data = an_metrics_df[an_metrics_df$Species == "Ololygon obtriangulata",])
+print(SVL_res)
+
+SVL_res = kruskal.test(SVL ~ Env, data = an_metrics_df[an_metrics_df$Species == "Physalaemus olfersii",])
+print(SVL_res)
+
+SVL_res = kruskal.test(SVL ~ Env, data = an_metrics_df[an_metrics_df$Species == "Rhinella icterica",])
+print(SVL_res)
+
+```
+
+I am not sure about the relevance of the following section as stated
+
+```{r AnuranSizeTraits Individuals, fig.height=140/25.4, fig.width=280/25.4}
+### Mouth Width with Individuals
+means = aggregate(MW ~ Env, data = an_metrics_df, FUN = mean)
+p_indv_MW = ggplot(an_metrics_df, aes(x = Env, y = MW, col = Env, fill = Env)) +
+  # Create the boxplot
+  geom_boxplot(alpha=0.2, outliers = FALSE, position = "dodge2") + 
+  # Plot all individual points
+  geom_point(size = 2, shape = 16, alpha = 0.2)+ 
+  geom_point(data = means, aes(x = Env, y = MW),
+             shape = 18, size = 3, colour = "black", show.legend = FALSE) +
+  scale_fill_manual(values = env_cl) +
+  scale_color_manual(values = env_cl) + 
+  xlab("")+ 
+  ylab(bquote("Mouth Width"~italic("mm")))+
+  ggtitle('')+
+  theme_cowplot(font_size = 20, font_family = "Helvetica")+ 
+  theme(
+    legend.title = element_blank(),
+    legend.position = c(0.05, 1), 
+    legend.justification = c(0, 1)) 
+
+### Snout Vent Lenght with Individuals
+means = aggregate(SVL ~ Env, data = an_metrics_df, FUN = mean)
+p_indv_SVL = ggplot(an_metrics_df, aes(x = Env, y = SVL, col = Env, fill = Env)) +
+  # Create the boxplot
+  geom_boxplot(alpha=0.2, outliers = FALSE, position = "dodge2", show.legend = FALSE) + 
+  # Plot all individual points
+  geom_point(size = 2, shape = 16, alpha = 0.2, show.legend = FALSE)+ 
+  geom_point(data = means, aes(x = Env, y = SVL),
+             shape = 18, size = 3, colour = "black", show.legend = FALSE) +
+  scale_fill_manual(values = env_cl) +
+  scale_color_manual(values = env_cl) + 
+  xlab("")+ 
+  ylab(bquote("Snout-Vent-Lenght"~italic("mm")))+
+  ggtitle('')+
+  theme_cowplot(font_size = 20, font_family = "Helvetica")+ 
+  theme(
+    legend.title = element_blank()
+    )
+
+plot_grid(p_indv_MW,p_indv_SVL)
+
+MW_model = aov(MW ~ Env, data = an_metrics_df)
+SVL_model = aov(SVL ~ Env, data = an_metrics_df)
+
+cat("ANOVA MW Summary\n")
+summary(MW_model)
+cat("ANOVA SVL Summary\n")
+summary(SVL_model)
+cat("\n```")
+```
+
+### Prey community characteristics
+
+To look into **prey community composition**, we looked to the prey available in each environment.
+Each point is an individual site, with colors representing the environments.
+This, results into the following NMDS plot
+
+```{r PreyCommNMDS, results='hide'}
+data_prey_site = read.csv("Data/pa_sample_composition_freq.csv", header=T, row.names=NULL) %>%
+  select(-Environment)
+
+sample_lookup = data_prey_site %>% 
+  select(Trail) %>%
+  rename(sites = Trail) %>%
+  mutate(environment = str_replace(sites,
+                                   "(.).*",
+                                   "\\1"))
+sample_lookup = sample_lookup[order(sample_lookup$sites), ]
+
+# Ensure data_sample_eu rows match the order of sample_lookup$Code or adjust as needed
+data_prey_site = column_to_rownames(data_prey_site, var = "Trail")
+dist_matrix_env = vegdist(data_prey_site[order(rownames(data_prey_site)), ])
+# ADONIS
+ad_env = adonis2(dist_matrix_env ~ sample_lookup$environment, 
+                       permutations = 10000)
+
+
+pF = ad_env$F[1]
+R2 = ad_env$R2[1] 
+p_value = ad_env$`Pr(>F)`[1]
+
+set.seed(1)
+nmds = metaMDS(data_prey_site)
+
+stress <- nmds$stress
+```
+
+```{r PreyNMDSPlot, fig.height=132/25.4, fig.width=140/25.4, message=FALSE, warning=FALSE}
+scores(nmds)$sites %>%
+  as_tibble(rownames = "sites") %>%
+  inner_join(., sample_lookup, by="sites") %>%
+  mutate(env = if_else(environment == "M", "Atlantic Forest", "Eucalyptus")) %>%
+  ggplot(aes(x=NMDS1, y=NMDS2, color=env)) +
+  geom_jitter(size = 3, show.legend = FALSE) +
+  scale_color_manual(values = env_cl) +
+
+  annotate('text', x = -0.7, y = -0.6, hjust = 0, vjust = 0, parse=TRUE, 
+         label = paste("stress == ", round(stress, digits = 2), sep = ""),
+                        size = 5)+
+  annotate('text', x = -0.7, y = -0.8, hjust = 0, vjust = 0, parse = TRUE, 
+           label = paste("perMANOVA~", "italic(r)^2 == ", round(R2, 2),"~italic(',')","~italic(p) < 0.001"),
+                        size = 5) +
+  xlab("NMDS1")+ 
+  ylab("NMDS2")+
+  theme_cowplot(font_size = 16, font_family = "Helvetica")+
+  theme(legend.title = element_blank())+
+  panel_border(colour = "black", size=1)
+```
+
+To look into **prey diversity** we used the Shannon Diversity index $H$ @shannon48.
+We looked at the diversity present in each site, as well as in the environment as a whole.
+This results in the following boxplots:
+
+```{r PreyShannonDiversity, fig.height=132/25.4, fig.width=140/25.4}
+data_prey_site_env = data_prey_site %>%
+mutate(Env = str_replace(rownames(data_prey_site),
+                                   "(.).*",
+                                   "\\1"))
+
+py_comm_mt = filter(data_prey_site_env, Env == "M") %>% select(-Env)
+py_sh_sites_mt = diversity(py_comm_mt) # Each site diversity
+py_sh_total_mt = diversity(colSums(py_comm_mt)) # Total diversity
+
+py_comm_eu = filter(data_prey_site_env, Env == "E") %>% select(-Env)
+py_sh_sites_eu = diversity(py_comm_eu) # Each site diversity
+py_sh_total_eu = diversity(colSums(py_comm_eu)) # Total diversity
+
+py_sh_df = data.frame(Env = c(rep("Atlantic Forest", length(py_sh_sites_mt)),
+                              rep("Eucalyptus", length(py_sh_sites_eu)) ),
+                      sh = c(py_sh_sites_mt, py_sh_sites_eu)
+                      )
+py_sh_df = py_sh_df[sort(rownames(py_sh_df)),]
+# Create a Data frame that stores the H value for the entire environment
+py_sh_total = data.frame(Env = c("Atlantic Forest", "Eucalyptus"), sh = c(py_sh_total_mt ,py_sh_total_eu))
+
+### Boxplot Prey Diversity
+py_sh_plot = ggplot(py_sh_df, aes(x = Env, y = sh, fill=Env, col=Env)) +
+  geom_boxplot(alpha=0.2, outliers = FALSE, position = "dodge2") +  # Create the boxplot
+  geom_point(position = position_jitterdodge(dodge.width = 0.75, jitter.width = 0.15),
+             size = 2, shape = 16, alpha = 0.2)+ # Plot all individual points
+  geom_point(position = position_dodge2(width = 0.75),
+             data = py_sh_total, aes(x = Env, y = sh),
+             shape = 18, size = 3, colour = "black",   show.legend = FALSE) +
+  scale_fill_manual(values = env_cl) +
+  scale_color_manual(values = env_cl) + 
+  xlab("Environments")+ 
+  ylab(bquote("Shannon Diversity"~italic("H'")))+
+  ggtitle('')+
+  theme_cowplot(font_size = 16, font_family = "Helvetica")+ 
+  theme(
+    legend.title = element_blank(),
+    legend.position = c(0.99, 0.99),
+    legend.justification = c(1,1))
+
+print(py_sh_plot)
+```
+
+```{r PreyShannonDiversityAnova}
+sites_grouping = c("B","B","B","B","A","A","B","B","C","C",
+                   "C","C","C","C","C","B","B","B","B","B",
+                   "B","B","C","C")
+py_sh_df = py_sh_df %>%
+  mutate(sites = sites_grouping)
+py_sh_model = lmer(sh ~ Env+(1|sites), data = py_sh_df)
+
+cat("ANOVA Summary\n")
+summary(py_sh_model)
+cat("\n```")
+```
+
+To look into **prey abundance** across both environments we looked at the abundance present in each site sampled.
+
+```{r PreyAbundance, fig.height=132/25.4, fig.width=140/25.4}
+data_prey_site_env = read.csv("Data/pa_sample_composition_freq.csv", header=T, row.names=NULL) %>%
+  mutate(Env = str_replace(Environment,
+                                   "(.).*",
+                                   "\\1")) %>%
+  select(-c(Environment, Trail) ) 
+
+
+py_abund_total_mt = filter(data_prey_site_env, Env == "M") %>%
+  select(-Env) %>%
+  rowSums()
+
+py_abund_total_eu = filter(data_prey_site_env, Env == "E") %>%
+  select(-Env) %>%
+  rowSums()
+  
+py_abund_df = data.frame(Env = c(rep("Atlantic Forest", length(py_abund_total_mt)),
+                              rep("Eucalyptus", length(py_abund_total_eu)) ),
+                      abund = c(py_abund_total_mt, py_abund_total_eu))
+
+### Boxplot Prey Abundance
+py_abund_plot = ggplot(py_abund_df, aes(x = Env, y = abund, fill=Env, col=Env)) +
+  geom_boxplot(alpha=0.2, outliers = FALSE, position = "dodge2") +  # Create the boxplot
+  geom_point(position = position_jitterdodge(dodge.width = 0.75, jitter.width = 0.15),
+             size = 2, shape = 16, alpha = 0.2)+ # Plot all individual points
+  scale_fill_manual(values = env_cl) +
+  scale_color_manual(values = env_cl) + 
+  xlab("Environments")+ 
+  ylab("Prey Availability Abundance")+
+  ggtitle('')+
+  theme_cowplot(font_size = 16, font_family = "Helvetica")+ 
+  theme(
+    legend.title = element_blank(),
+    legend.position = c(0.99, 0.99),
+    legend.justification = c(1,1))
+
+print(py_abund_plot)
+
+```
+
+```{r PreyAbundanceAnova}
+sites_grouping = c("B","B","B","B","A","A","B","B","C","C",
+                   "C","C","C","C","C","B","B","B","B","B",
+                   "B","B","C","C")
+py_abund_df = py_abund_df %>%
+  mutate(sites = sites_grouping)
+
+py_abund_model = glmer(abund ~ Env+(1|sites), data = py_abund_df,
+                  family = "poisson")
+cat("ANOVA Summary\n")
+summary(py_abund_model)
+cat("\n```")
+```
+
+Finally, we can compare the size by **volume of the more important prey types** across both environments.
+
+```{r PreyVolumePlots,fig.height=140/25.4, fig.width=280/25.4}
+### Importing Prey Availability Data -
+# Import the .csv file as a DF
+traits_pa = read.csv("Data/Prey_AV_MV.csv", header=T, dec= ",", row.names=NULL) 
+
+prey_types_volume = c("Coleoptera", "Formicidae", "Araneae")
+LogVol_pa = traits_pa %>%
+  filter(Class.inferior %in% prey_types_volume) %>%
+  mutate(LogVolume = log2(Volume), 
+         Class.inferior = factor(Class.inferior,
+                                    levels = c("Coleoptera", "Formicidae", "Araneae")))
+
+LogVol_pa$Environment = ifelse(LogVol_pa$Environment == "Eucalipto", "Eucalyptus", 
+                          ifelse(LogVol_pa$Environment == "Mata", "Atlantic Forest",
+                                 LogVol_pa$Environment))
+
+# BoxPlot PreyVolumePlots
+means = aggregate(LogVolume ~ Environment*Class.inferior, data = LogVol_pa, FUN = mean)
+p_prey_LogVol = ggplot(LogVol_pa,
+                       aes(x = Class.inferior, y = LogVolume, 
+                           fill=Environment, col=Environment)) +
+  geom_boxplot(alpha=0.2, outliers = FALSE, position = "dodge2") +  # Create the boxplot
+  geom_point(position = position_jitterdodge(dodge.width = 0.75, jitter.width = 0.15),
+             size = 2, shape = 16, alpha = 0.1)+ # Plot all individual points
+  geom_point(position = position_dodge2(width = 0.75),
+             data = means, aes(x = Class.inferior, y = LogVolume),
+             shape = 18, size = 3, colour = "black",   show.legend = FALSE) +
+  scale_fill_manual(values = env_cl) +
+  scale_color_manual(values = env_cl) + 
+  xlab("Prey Types")+ 
+  ylab(bquote(~italic("Log")~"Volume"))+
+  ggtitle('')+
+  theme_cowplot(font_size = 16, font_family = "Helvetica")+ 
+  theme(
+    legend.title = element_blank(),
+    legend.position.inside = c(0.95, 0.95))
+
+print(p_prey_LogVol)
+```
+
+```{r PreyVolumeAnova, results='hold'}
+col_aov = filter(LogVol_pa, Class.inferior == "Coleoptera")
+col_aov_model = aov(LogVolume ~ Environment, data = col_aov)
+
+form_aov = filter(LogVol_pa, Class.inferior == "Formicidae")
+form_aov_model = aov(LogVolume ~ Environment, data = form_aov)
+
+aran_aov = filter(LogVol_pa, Class.inferior == "Araneae")
+aran_aov_model = aov(LogVolume ~ Environment, data = aran_aov)
+
+blatt_aov = filter(LogVol_pa, Class.inferior == "Blattodea")
+
+cat("ANOVA Summary\n")
+cat("Coleoptera\n")
+summary(col_aov_model)
+cat("Formicidae\n")
+summary(form_aov_model)
+cat("Araneae\n")
+summary(aran_aov_model)
+cat("\n```")
+```
+
+```{r SampleSize Prey, echo=FALSE, message=FALSE, warning=FALSE, results='asis'}
+cat("Sample Size for each plot:<br>")
+cat(paste("Atlantic Forest Prey:",
+          "Coleoptera",
+          dim(filter(LogVol_pa, Environment == "Atlantic Forest" & Class.inferior == "Coleoptera"))[1],
+          "Formicidae",
+          dim(filter(LogVol_pa, Environment == "Atlantic Forest" & Class.inferior == "Formicidae"))[1],
+          "Araneae",
+          dim(filter(LogVol_pa, Environment == "Atlantic Forest" & Class.inferior == "Araneae"))[1],
+          "Blattodea",
+          dim(filter(LogVol_pa, Environment == "Atlantic Forest" & Class.inferior == "Blattodea"))[1],
+          "<br>"
+        ))
+cat(paste("Eucalyptus Prey:",
+          "Coleoptera",
+          dim(filter(LogVol_pa, Environment == "Eucalyptus" & Class.inferior == "Coleoptera"))[1],
+          "Formicidae",
+          dim(filter(LogVol_pa, Environment == "Eucalyptus" & Class.inferior == "Formicidae"))[1],
+          "Araneae",
+          dim(filter(LogVol_pa, Environment == "Eucalyptus" & Class.inferior == "Araneae"))[1],
+          "Blattodea",
+          dim(filter(LogVol_pa, Environment == "Eucalyptus" & Class.inferior == "Blattodea"))[1],
+          "<br>"
+        )) 
+
+```
+
+## Species Generalization & Specialization
+
+Volume of each prey item was approximated with the ellipsoid formula [@dunhamRealizedNicheOverlap1983].
+$$V = \dfrac{4 \pi A B^2}{3}, $$ where A = the length of the prey e B = the width of the prey.
+### Dietary Diversity
+
+```{r DietaryRichness, fig.height=140/25.4, fig.width=280/25.4, results='hold'}
+links_eu = as.matrix(read.csv("Data/vol_eu_diet_matrix_final.csv", header = T, row.names = 1, check.names = FALSE))
+links_mt = as.matrix(read.csv("Data/vol_mt_diet_matrix_final.csv", header = T, row.names = 1, check.names = FALSE))
+links = list(eu = links_eu, mt = links_mt)
+
+an_sh_diet_mt = specnumber(links$mt[,!spp$mt %in% spp$beta], MARGIN = 2)
+an_sh_diet_mt_beta = specnumber(links$mt[,spp$beta], MARGIN = 2)
+an_sh_diet_eu = specnumber(links$eu[,spp$eu[!spp$eu %in% spp$mt]], MARGIN = 2)
+an_sh_diet_eu_beta = specnumber(links$eu[,spp$eu[spp$eu %in% spp$mt]], MARGIN = 2)
+diet_sh_df = data.frame(Env = c(rep("Atlantic Forest", length(an_sh_diet_mt)),
+                              rep("Atlantic Forest Beta", length(an_sh_diet_mt_beta)),
+                              rep("Eucalyptus", length(an_sh_diet_eu)),
+                              rep("Eucalyptus Beta", length(an_sh_diet_eu_beta))
+                              ),
+                      sh = c(an_sh_diet_mt, an_sh_diet_mt_beta, an_sh_diet_eu, an_sh_diet_eu_beta)
+                      )
+
+### Boxplot Anuran Diversity
+an_sh_plot = ggplot(diet_sh_df, aes(x = Env, y = sh, fill=Env, col=Env)) +
+  geom_boxplot(alpha=0.2, outliers = FALSE, position = "dodge2") +  # Create the boxplot
+  geom_point(position = position_jitterdodge(dodge.width = 0.75, jitter.width = 0.15),
+             size = 2, shape = 16, alpha = 0.3)+ # Plot all individual points
+  #scale_fill_manual(values = env_compare_cl) +
+  #scale_color_manual(values = env_compare_cl) + 
+  xlab("")+ 
+  ylab("Richness")+
+  ggtitle('')+
+  theme_cowplot(font_size = 16, font_family = "Helvetica")+ 
+  theme(
+    legend.title = element_blank(),
+    legend.position = c(0.99, 0.99),
+    legend.justification = c(1,1))
+
+diet_sh_model = kruskal.test(sh ~ Env, data = diet_sh_df)
+print(an_sh_plot)
+cat("Atlantic Forest mean H:\n")
+cat(mean(an_sh_diet_mt),"\u00B1",sd(an_sh_diet_mt),"\n")
+cat("Atlantic Forest Beta mean H:\n")
+cat(mean(an_sh_diet_mt_beta),"\u00B1",sd(an_sh_diet_mt_beta),"\n")
+cat("Eucalyptus mean H:\n")
+cat(mean(an_sh_diet_eu),"\u00B1",sd(an_sh_diet_eu),"\n")
+cat("ANOVA Summary\n")
+summary(diet_sh_model)
+cat("\n```")
+
+```
+
+```{r DietaryDiversityShannon, fig.height=132/25.4, fig.width=180/25.4, results='hold'}
+links_eu = as.matrix(read.csv("Data/vol_eu_diet_matrix_final.csv", header = T, row.names = 1, check.names = FALSE))
+links_mt = as.matrix(read.csv("Data/vol_mt_diet_matrix_final.csv", header = T, row.names = 1, check.names = FALSE))
+links = list(eu = links_eu, mt = links_mt)
+
+an_sh_diet_mt = diversity(links$mt[,!spp$mt %in% spp$beta], MARGIN = 2)
+an_sh_diet_mt_beta = diversity(links$mt[,spp$beta], MARGIN = 2)
+an_sh_diet_eu = diversity(links$eu[,spp$eu[!spp$eu %in% spp$mt]], MARGIN = 2)
+an_sh_diet_eu_beta = diversity(links$eu[,spp$eu[spp$eu %in% spp$mt]], MARGIN = 2)
+diet_sh_df = data.frame(Env = c(rep("Atlantic Forest", length(an_sh_diet_mt)),
+                              rep("Atlantic Forest Beta", length(an_sh_diet_mt_beta)),
+                              rep("Eucalyptus", length(an_sh_diet_eu)),
+                              rep("Eucalyptus Beta", length(an_sh_diet_eu_beta))
+                              ),
+                      sh = c(an_sh_diet_mt, an_sh_diet_mt_beta, an_sh_diet_eu, an_sh_diet_eu_beta)
+                      )
+
+### Boxplot Anuran Diversity
+an_sh_plot = ggplot(diet_sh_df, aes(x = Env, y = sh, fill=Env, col=Env)) +
+  geom_boxplot(alpha=0.2, outliers = FALSE, position = "dodge2") +  # Create the boxplot
+  geom_point(position = position_jitterdodge(dodge.width = 0.75, jitter.width = 0.15),
+             size = 2, shape = 16, alpha = 0.3)+ # Plot all individual points
+  #scale_fill_manual(values = env_compare_cl) +
+  #scale_color_manual(values = env_compare_cl) + 
+  xlab("")+ 
+  ylab(bquote("Shannon Diversity"~italic("H'")))+
+  ggtitle('')+
+  theme_cowplot(font_size = 16, font_family = "Helvetica")+ 
+  theme(
+    legend.position = c(1, 0.99),
+    legend.justification = c(1,1)
+    )
+
+diet_sh_model = kruskal.test(sh ~ Env, data = diet_sh_df)
+print(an_sh_plot)
+cat("Atlantic Forest mean H:\n")
+cat(mean(an_sh_diet_mt),"\u00B1",sd(an_sh_diet_mt),"\n")
+cat("Atlantic Forest Beta mean H:\n")
+cat(mean(an_sh_diet_mt_beta),"\u00B1",sd(an_sh_diet_mt_beta),"\n")
+cat("Eucalyptus mean H:\n")
+cat(mean(an_sh_diet_eu),"\u00B1",sd(an_sh_diet_eu),"\n")
+cat("ANOVA Summary\n")
+summary(diet_sh_model)
+cat("\n```")
+
+```
+
+### Sp50
+
+One way to look into diet generalization is to see how many prey types compromise the core of each species diet.
+We can do this, by calculating the $sp50$ wich gives us how many prey types comprise the main 50% of the diet [@hutchinsonDietaryAbundanceDistributions2022].
+Here we do it by analyzing the proportional contribution of prey volume to the diet Beyond this, we will we comparing not just Atlantic Forest species against Eucalyptus, but also the subset of species in Atlantic Forest that are in Eucalyptus.
+
+```{r Sp50 Anurans, fig.height=100/25.4, fig.width=140/25.4, results='hold'}
+source("Source/sp50.R")
+
+spp_diet = list()
+sp50_env_spp = list()
+for (l in names(links)) {
+  for (j in colnames(links[[l]])) {
+    spp_diet[[l]][[j]] = rev(sort(links[[l]][, j])) / sum(links[[l]][, j])
+    sp50_env_spp[[l]][[j]] = sp50_linear(spp_diet[[l]][[j]])
+  }
+}
+
+### Organize Data into a DF with Beta bins split
+sp50_df = data.frame(
+  sp50 = c(
+    sp50_env_spp[["mt"]][spp$mt] %>% unlist %>% as.vector(),
+    sp50_env_spp[["eu"]][spp$eu] %>% unlist %>% as.vector()
+    ),
+  Env = c(
+    rep("Atlantic Forest", length(sp50_env_spp[["mt"]][spp$mt])),
+    rep("Eucalyptus", length(sp50_env_spp[["eu"]][spp$eu]))
+    )
+)
+
+# Boxplot the Data
+means = aggregate(sp50 ~ Env, data = sp50_df, FUN = mean)
+p_sp50 = ggplot(sp50_df, aes(x = Env, y = sp50, col = Env, fill = Env)) +
+  geom_boxplot(alpha=0.2, outliers = FALSE, position = "dodge2") +  # Create the boxplot
+  geom_point(size = 2, shape = 16, alpha = 0.3)+ # Plot all individual points
+  geom_point(data = means, aes(x = Env, y = sp50),
+             shape = 18, size = 3, colour = "black",   show.legend = FALSE) +
+  geom_point(position = position_jitterdodge(dodge.width = 0.75, jitter.width = 0.1),
+             size = 2, shape = 16, alpha = 0.35)+ # Plot all individual point
+  scale_fill_manual(values = env_cl) +
+  scale_color_manual(values = env_cl) + 
+  xlab("")+ 
+  ylab("sp 50")+
+  ggtitle('')+
+  scale_y_continuous(expand=c(0,0), limits=c(-0.1,2)) +
+  theme_cowplot(font_size = 16, font_family = "Helvetica")+ 
+  theme(
+    legend.title = element_blank(),
+    legend.position = c(0.99, 0.99),
+    legend.justification = c(1,1)
+    )
+
+print(p_sp50)
+```
+
+```{r sp50 AnuransAnova, results='hold'}
+sp50_model = kruskal.test(sp50 ~ Env, data = sp50_df)
+cat("Summary\n")
+print(sp50_model)
+cat("\n```")
+
+#TukeyHSD(sp50_model)
+```
+
+### Ranked Electivity
+
+Another way to look into generalization, is to see if species prey upon whats available in the environemnt stochastically, or if they select for their prey.
+On approach to look into this is Jacob's Electivity (*D*) [@jacobsQuantitativeMeasurementFood1974]: $$ \begin{equation}
+D_i= \dfrac{r_i-p_i}{r_i+p_i-2r_ip_i}
+\end{equation}, $$ where $r$ is the proportion in the diet and $p$ in the environment.
+
+For this, we will only look at the more important prey categories for each species.
+Informed by the sp50 we picked ...
+
+```{r RankElecAnalyzes}
+### Organizing Prey Availability Data
+data_PA = read.csv("Data/pa_sample_composition_vol.csv", header=T, check.names = FALSE, row.names=NULL)
+
+PA_env = list(
+  eu = filter(data_PA, Environment == "Eucalipto") %>% select(-c(Trail, Environment)) %>% colSums,
+  mt = filter(data_PA, Environment == "Mata") %>% select(-c(Trail, Environment)) %>% colSums )
+
+for (l in names(PA_env)) {
+  PA_env[[l]] = rev(sort(PA_env[[l]]))/ sum(PA_env[[l]])
+}
+
+PA_SAD_df = do.call(rbind, lapply(names(PA_env), function(env) {
+  data_frame <- data.frame(
+    Type = "PA",
+    Env = rep(env, length(PA_env[[env]])),
+    Prey = names(PA_env[[env]]),
+    VolProp = PA_env[[env]] %>% unname()
+  )
+}))
+
+### Organizing Prey Items Stomach Data 
+rownames(links$eu) = gsub("\\.", " ", rownames(links$eu))
+rownames(links$mt) = gsub("\\.", " ", rownames(links$mt))
+
+### Create a PA vs PIS of each Unique Species
+# spp$mt and spp$eu
+SAD_DAD = list()
+for (e in c("eu", "mt")) {
+  l = links[[e]]
+  for (sp in spp[[e]]) {
+    pis_sp = setNames(as.data.frame(rev(sort(l[,sp])) / sum(l[,sp])), "VolProp")
+    pis_sp = rownames_to_column(pis_sp, var = "Prey")
+    pis_sp$Env = e
+    pis_sp$Type = "PIS"
+    
+    pa = filter(PA_SAD_df, Env == e)
+    # Check which prey in the PA is not in the PIS
+    PA_N_PIS = pa[!pa$Prey %in% pis_sp$Prey,]
+    if (dim(PA_N_PIS)[1] != 0) {
+      PA_N_PIS$VolProp = 0
+      PA_N_PIS$Type = "PIS"
+    }
+
+    # Check which prey in the PIS is not in the PA
+    PIS_N_PA = pis_sp[!pis_sp$Prey %in% pa$Prey,]
+    if (dim(PIS_N_PA)[1] != 0) {
+      PIS_N_PA$VolProp = 0
+      PIS_N_PA$Type = "PA"
+    } 
+    # Store df in the list() 
+    SAD_DAD[[e]][[sp]] = bind_rows(pis_sp, PA_N_PIS, pa, PIS_N_PA)
+    SAD_DAD[[e]][[sp]] = SAD_DAD[[e]][[sp]][order(SAD_DAD[[e]][[sp]]$Type, 
+                                                  SAD_DAD[[e]][[sp]]$Prey),]
+  }
+}
+  
+### Ranking and Electivity Analysis
+jacob = list()
+for (e in c("eu", "mt")) {
+  for (sp in spp[[e]]) {
+    # Rank and store rankings into a new column inside data
+    SAD_DAD[[e]][[sp]][SAD_DAD[[e]][[sp]]$Type == "PA", "VolRank"] = rank(
+      -SAD_DAD[[e]][[sp]][SAD_DAD[[e]][[sp]]$Type == "PA", "VolProp"], ties.method='random')
+    
+    SAD_DAD[[e]][[sp]][SAD_DAD[[e]][[sp]]$Type == "PIS", "VolRank"] = rank(
+      -SAD_DAD[[e]][[sp]][SAD_DAD[[e]][[sp]]$Type == "PIS", "VolProp"], ties.method='random')
+  
+    # For Volume Volume data
+    jacob[[e]][[sp]] = electivity::jacob_electivity(SAD_DAD[[e]][[sp]][SAD_DAD[[e]][[sp]]$Type == "PIS", "VolProp"],
+                                                    SAD_DAD[[e]][[sp]][SAD_DAD[[e]][[sp]]$Type == "PA", "VolProp"])
+    names(jacob[[e]][[sp]]) = unique(SAD_DAD[[e]][[sp]]$Prey)
+    jacob[[e]][[sp]] = round(jacob[[e]][[sp]], 2)
+  }
+}
+
+### Organizing Electivity Data
+elec_df = data.frame( Species = character(), Env = factor(), Prey = character(), D = numeric() )
+
+for (e in c("mt", "beta", "eu")) {
+  if (e == "mt") {
+    for (sp in spp$mt) {
+      df = data.frame(Species = sp, Env = e, Prey = names(jacob[[e]][[sp]]),
+                      D = unlist(jacob[[e]][[sp]]), row.names = NULL)
+      elec_df = bind_rows(elec_df, df)
+    }
+  }
+  if (e == "eu") {
+    for (sp in spp$eu) {
+      df = data.frame(Species = sp, Env = e, Prey = names(jacob[[e]][[sp]]),
+                      D = unlist(jacob[[e]][[sp]]), row.names = NULL)
+      elec_df = bind_rows(elec_df, df)
+    }
+  }
+}
+```
+
+```{r SAD RESULT, results='hold'}
+# Top 10 SAD Atlantic Forest
+res_sad_mt = filter(PA_SAD_df, Env == "mt")
+cat("Atlantic Forest SAD\n")
+print(res_sad_mt[order(res_sad_mt$VolProp, decreasing = T), ][1:10,c(3,4)])
+cat("\n```")
+
+# Top 10 SAD Eucalyptus
+res_sad_eu = filter(PA_SAD_df, Env == "eu")
+cat("Eucalyptus SAD\n")
+print(res_sad_eu[order(res_sad_eu$VolProp, decreasing = T), ][1:10,c(3,4)])
+cat("\n```")
+```
+
+```{r PlotElectivityRank1, fig.height=140/25.4, fig.width=280/25.4}
+prey_1 = list()
+for (e in c("eu", "mt")) {
+  for (sp in spp[[e]]) {
+    prey_1[[e]][[sp]]= SAD_DAD[[e]][[sp]] %>%
+      filter(Type == "PIS" & VolRank == 1) %>%
+      select(Prey) %>% unlist() %>% as.vector()
+  }
+}
+
+df_1 = tibble(Species = factor(), Env = factor(), D = double() )
+for (e in c("mt", "eu")) {
+  if (e == "mt") {
+    for (sp in spp$mt) {
+      temp_df = elec_df %>%
+        filter(Env == e & Species == sp & Prey == prey_1[[e]][[sp]]) %>%
+        select(-Prey) 
+      df_1 = bind_rows(df_1, temp_df)
+    }
+  }
+  if (e == "eu") {
+    for (sp in spp$eu) {
+      temp_df = elec_df %>%
+        filter(Env == e & Species == sp & Prey == prey_1[[e]][[sp]]) %>%
+        select(-Prey) 
+      df_1 = bind_rows(df_1, temp_df)
+    }
+  }
+} 
+
+                                 
+
+# Add an average boxplot to all species sum
+df_1 = bind_rows(df_1, tibble(
+  Species = "All", Env = df_1$Env, D = df_1$D
+))
+
+# Filter only species in both environments to be ploted
+df_1 = filter(df_1, Species %in% c("All", spp$beta))
+
+# Modify Labels for better plotting
+df_1 = df_1 %>%
+  mutate(Species = gsub("^(\\w)\\w+\\s", "\\1. ", Species)) %>%
+  mutate(Species = gsub("aff. ", "", Species))
+
+df_1$Env = factor(ifelse(df_1$Env == "eu", "Eucalyptus", 
+                          ifelse(df_1$Env == "mt", "Atlantic Forest",df_1$Env)
+                                 ))
+
+means = aggregate(D ~ Env, data = df_1, FUN = mean)
+p_elec_rk1 = ggplot(df_1, aes(x = Species, y = D, fill = Env, col = Env)) +
+  geom_boxplot(alpha=0.25, outliers = FALSE, position = "dodge2") +  # Create the boxplot
+  geom_point(position = position_jitterdodge(dodge.width = 0.75, jitter.width = 0.1),
+             size = 2, shape = 16, alpha = 0.35)+ # Plot all individual points
+  scale_fill_manual(values = env_cl) +
+  scale_color_manual(values = env_cl) +
+  xlab("Species")+ 
+  ylab(bquote(~italic("D")["electivity"]))+
+  ggtitle('')+
+  theme_cowplot(font_size = 16, font_family = "Helvetica")+ 
+  theme(
+    legend.title=element_blank(),
+    legend.position.inside = c(0.81, 0.92))
+
+print(p_elec_rk1)   
+```
+
+```{r ElectivityAnova, results='hold'}
+df_1_aov = df_1 %>%
+  filter(Species != "All")
+
+df_1_model = kruskal.test(D ~ Env, data = df_1_aov)
+cat("ANOVA Summary\n")
+print(df_1_model)
+cat("\n```")
+```
+
+```{r ElevtiviryPairwiseTtest, results='hold'}
+spp$beta_short_pair = gsub("^(\\w)\\w+\\s", "\\1. ", spp$beta)
+
+df_1_pair = data.frame(
+  Species = spp$beta_short_pair,
+  MT = c(filter(df_1, (Species %in% spp$beta_short_pair & Env == "Atlantic Forest")) %>% 
+      select(D) %>% as.vector() %>% unlist()),
+  EU = c(filter(df_1, (Species %in% spp$beta_short_pair & Env == "Eucalyptus")) %>% 
+      select(D) %>% as.vector() %>% unlist())
+     )
+
+df_1_res = t.test(df_1_pair$MT, df_1_pair$EU, mu = 0, alternative = "two.sided", paired = TRUE)
+print(df_1_res)
+
+
+```
+
+### Dissimilarity
+
+Beyond selection for a particular species, diet composition can expose multiple preferences and avoidances when compared to prey availability.
+To investigate this, we can look into the difference between diet and environment for each prey type proportion.
+Dissimilarity is analyzed with the Jaccard Dissimilarity $D$ [@faith_etal87a].
+Jaccard index is computed as $2B/(1+B)$, where $B$ is the Bray-Curtis dissimilarity.
+$$ B_{ij}=\dfrac{\sum_i{\mid x_{ij}-x_{ik} \mid}}{(x_{ij}+x_{ik})} $$
+
+```{r DisparityImages, fig.height=140/25.4, fig.width=140/25.4, message=FALSE, warning=FALSE}
+source("Source/diet_gen.R")
+
+### Volume Dissimilarity
+jac_vol_df = list()
+obs_jac = list()
+
+for (e in c("eu", "mt")) {
+  for (sp in spp[[e]]) {
+    jac_vol_df[[e]][[sp]] = data_frame(Prey = SAD_DAD[[e]][[sp]][SAD_DAD[[e]][[sp]]$Type == "PIS","Prey"], 
+                                  Diet = SAD_DAD[[e]][[sp]][SAD_DAD[[e]][[sp]]$Type == "PIS","VolProp"], 
+                                   Env = SAD_DAD[[e]][[sp]][SAD_DAD[[e]][[sp]]$Type == "PA","VolProp"])
+    # here d is the two-column data frame with prey availability and diet composition, 
+    # where the first column is availability
+    obs_jac[[e]][[sp]] = vegan::vegdist(t(jac_vol_df[[e]][[sp]][,2:3]), binary=FALSE, method='jaccard') 
+  }
+}
+
+file_path = "Results/Jacc_SPP/"
+
+njh = list() # list of vectors for storing null model results
+z_jac = list()
+hist = list()
+p = list()
+
+info = list(mt = list(
+  sp1 = list(ind = 6, prey = 9),
+  sp2 = list(ind = 4, prey = 10),
+  sp3 = list(ind = 11, prey = 15),
+  sp4 = list(ind = 3, prey = 12),
+  sp5 = list(ind = 8, prey = 22),
+  sp6 = list(ind = 2, prey = 5),
+  sp7 = list(ind = 6, prey = 9),
+  sp8 = list(ind = 6, prey = 10),
+  sp9 = list(ind = 2, prey = 6),
+  sp10 = list(ind = 8, prey = 9),
+  sp11 = list(ind = 6, prey = 28),
+  sp12 = list(ind = 10, prey = 24),
+  sp13 = list(ind = 3, prey = 6),
+  sp14 = list(ind = 13, prey = 273),
+  sp15 = list(ind = 2, prey = 69),
+  sp16 = list(ind = 5, prey = 8)), 
+  eu = list(
+  sp1 = list(ind = 12, prey = 89),
+  sp2 = list(ind = 6, prey = 15),
+  sp3 = list(ind = 2, prey = 42),
+  sp4 = list(ind = 2, prey = 5),
+  sp5 = list(ind = 1, prey = 10),
+  sp6 = list(ind = 4, prey = 24),
+  sp7 = list(ind = 2, prey = 13)
+  )
+)
+
+for (e in c("eu", "mt")) {
+  names(info[[e]]) = spp[[e]]
+}
+
+n = 1000 # Define number of null model samples
+for (e in c("eu", "mt")) {
+  for (sp in spp[[e]]) {
+    sad = jac_vol_df[[e]][[sp]]$Env
+    names(sad) = jac_vol_df[[e]][[sp]]$Prey
+    null_jac = c() 
+    for(i in 1:n){
+      av_diet = diet_gen(sad=sad, method='random', 
+                         # alter n and inds accordingly
+                         n = ceiling(info[[e]][[sp]]$prey/info[[e]][[sp]]$ind), 
+                         inds = info[[e]][[sp]]$ind)$av 
+      
+      # Jac between sad and av_diet
+      null_jac = c(null_jac, as.numeric(vegan::vegdist(rbind(t(sad), av_diet), binary=FALSE, 
+                                                       method='jaccard'))) 
+    }
+    
+    # observed diet is significantly different to random sampling?
+    p[[e]][[sp]] = (length(which(null_jac >= obs_jac[[e]][[sp]]))+1)/(n+1) 
+    z_jac[[e]] = c(z_jac[[e]], (obs_jac[[e]][[sp]] - mean(null_jac))/sd(null_jac))
+    njh[[e]][[sp]] = data.frame(x = null_jac)
+    
+    hist[[e]][[sp]] = ggplot(njh[[e]][[sp]], aes(x = x))+
+      
+      geom_histogram(col="grey50", fill="lightgray", alpha=0.4, bins=25)+
+      
+      geom_vline(aes(xintercept=obs_jac[[e]][[sp]]), col="red", linewidth=1.5)+
+      
+      annotate('text', x = 0.9, y = 300, parse=TRUE, 
+               label = paste('italic(P)~', 
+                             ifelse(round(p[[e]][[sp]], digits = 4) < 0.001,'"< 0.001"',
+                                paste('"="~', round(p[[e]][[sp]], digits = 3))), sep=''))+
+      theme_cowplot(font_size = 20, font_family = "Helvetica")+
+      theme(plot.background = element_rect(fill = "white"),
+            plot.margin = margin(1, 1, 1, 1, "cm"),
+            text = element_text(family = "Helvetica")) + # Adjust margins as needed
+      
+      xlab('Dissimilarity (diet & environment)')+
+      
+      ylab('Count')+
+      
+      scale_y_continuous(expand=c(0,0), limits=c(0,400)) +
+      scale_x_continuous(expand=c(0,0), limits=c(0,1))
+    ggsave(filename = paste(file_path, e, "_Jac_", sp,".png", sep = ""), width = 9, height = 6)
+  }
+}
+
+sup_dissimilarity_table = data.frame(Environment = c(rep("Eucalyptus", length(spp$eu)), 
+                                             rep("Atlantic Forest", length(spp$mt))
+                                                    ),
+                                    Species = c(spp$eu, spp$mt),
+                                    Z = c(z_jac$eu, z_jac$mt),
+                                    p = c(unlist(p$eu), unlist(p$mt))
+                                    )
+# Save the data frame to a CSV file
+write.csv(sup_dissimilarity_table, file = "Results/Jacc_SPP/sup_dissimilarity_table.csv",
+          row.names = FALSE)
+
+```
+
+To standardize the Dissimilarity results, we performed a z-transformation, and looked at them in terms of z-scores
+
+```{r DisparityZscoreBoxplot, fig.height=100/25.4, fig.width=140/25.4}
+z_jac_df = data.frame(Env = c(rep("Eucalyptus", length(spp$eu)), 
+                              rep("Atlantic Forest", length(spp$mt))
+                              ),
+                      Z = c(z_jac$eu, z_jac$mt)
+                              )
+means = aggregate(Z ~ Env, data = z_jac_df, FUN = mean)
+p_z_jac = ggplot(z_jac_df, aes(x = Env, y = Z, col = Env, fill = Env)) +
+  # Create the boxplot
+  geom_boxplot(alpha=0.2, outliers = FALSE, position = "dodge2") +
+  # Plot all individual points
+  geom_point(size = 2, shape = 16, alpha = 0.3)+ 
+  geom_point(data = means, aes(x = Env, y = Z),
+             shape = 18, size = 3, colour = "black",   show.legend = FALSE) +
+  geom_point(position = position_jitterdodge(dodge.width = 0.75, jitter.width = 0.1),
+             size = 2, shape = 16, alpha = 0.35) + # Plot all individual point
+  scale_fill_manual(values = env_cl) +
+  scale_color_manual(values = env_cl) +
+  scale_y_continuous(expand=c(0,0), limits=c(-1,25)) +
+
+  xlab("")+ 
+  ylab(bquote("Dissimilarity "["Z"]))+
+  ggtitle('')+
+  theme_cowplot(font_size = 16, font_family = "Helvetica")+ 
+  theme(
+    legend.title = element_blank(),
+    legend.position = c(0.99, 0.99),
+    legend.justification = c(1,1)
+    )
+
+print(p_z_jac)
+```
+
+```{r DissimilarityZAnova, results='hold'}
+z_jac_df_aov = z_jac_df
+z_model = aov(Z ~ Env, data = z_jac_df_aov)
+
+cat("ANOVA Summary\n")
+summary(z_model)
+cat("\n```")
+
+```
+
+## Niche Partitioning & Modularity
+
+### Dietary NMDS
+
+First, a good way to observe how both communities are structured is to look at the diet composition of individuals and species.
+NMDS's provide a tool to represent a multidimensional into a 2D plane, that arranges the points in a way that captures the distances and ordinations between them.
+
+After running the `nmds()`, we run the `adonis2()` to execute a perMANOVA analyzes that determines the relevance of species identity for the pattern observed.
+
+```{r CommunityNMDSs, warning=FALSE, results='hide'}
+### Import Diet data
+data = read.csv("Data/diet_sample_indv_vol.csv", header=T, dec= ".", check.names = FALSE)
+data_mt = filter(data, Environment == "mata") # Only Atlantic Forest samples
+data_eu = filter(data, Environment == "eucalipto") # Only Eucalyptus samples
+
+data_eu = data_eu[data_eu$Species %in% spp$eu, ]
+data_mt = data_mt[data_mt$Species %in% spp$mt, ]
+
+### Import PA Environment data
+pa_data_vol = read.csv("Data/pa_sample_composition_vol.csv", header=T, dec= ".", check.names = FALSE)
+pa_data_vol = pa_data_vol %>% rename(Code = Trail)
+
+# Merge PA and PIS
+data_merge_mt = data_mt %>%
+  bind_rows(
+    pa_data_vol[pa_data_vol$Environment == "Mata",] %>% select(names(data_mt)[names(data_mt) %in% names(pa_data_vol)])
+  ) %>%
+  replace_na(list(Species = "Environmental"))
+
+data_merge_eu = data_eu %>%
+  bind_rows(
+    pa_data_vol[pa_data_vol$Environment == "Eucalipto",] %>% select(names(data_eu)[names(data_eu) %in% names(pa_data_vol)])
+  ) %>%
+  replace_na(list(Species = "Environmental"))
+
+# Calculate Proportions on each Sample (Code and Trail)
+cp_mt = data_merge_mt %>%
+  mutate_at(vars(-c(Species,Code,Environment)), ~ . / rowSums(data_merge_mt[4:26]))
+
+cp_eu = data_merge_eu %>%
+  mutate_at(vars(-c(Species,Code,Environment)), ~ . / rowSums(data_merge_eu[4:26]))
+
+#prey_interest = c("Coleoptera","Formicidae","Araneae", "Blattodea", "Ensifera")
+prey_interest = colnames(data_merge_mt[4:26])
+
+# Define a table containing traits and information for each code
+sample_lookup = bind_rows(data_merge_mt,data_merge_eu) %>%
+  select(Code, Species, Environment) %>%
+  inner_join(., bind_rows(cp_mt[c("Code", prey_interest)], cp_eu[c("Code", prey_interest)]), by="Code")
+
+# Limit data to community 
+
+data_sample_mt = data_merge_mt[4:26]
+rownames(data_sample_mt) = data_merge_mt$Code
+
+data_sample_eu = data_merge_eu[4:26]
+rownames(data_sample_eu) = data_merge_eu$Code
+
+
+mt_colours = c("#000000ff","#2eff00ff","#c2b5a5ff","#ef164aff","#ffb6db",
+               "#820cf8ff","#9b0b7fff","#4ab126ff","#6db6ff","#b61124ff",
+               "#bd5e00ff","#503780ff","#eaeb00ff","#0004ffff","#cab96aff", "#ed9610ff")
+
+eu_colours = c("#ef164aff","#4ab126ff","#8f4ec8ff", "#b61124ff","#08d5e7ff","#eaeb00ff","#0004ffff")
+```
+
+```{r MTnEU NMDS, warning=FALSE, results='hide'}
+### Atlantic Forest
+set.seed(1) # Set seed right before running metaNMDS()
+nmds = metaMDS(data_sample_mt, distance = "euclidean")
+
+stress = nmds$stress
+
+# Ensure data_sample_eu rows match the order of sample_lookup$Code or adjust as needed
+dist_matrix_mt_vol = vegdist(data_sample_mt[order(rownames(data_sample_mt)[grep("_",rownames(data_sample_mt), invert = TRUE)]), ],
+                             method = "euclidean")
+
+### ADONIS
+ad_r_mt_vol = adonis2(dist_matrix_mt_vol ~ Species, 
+                      data = arrange(filter(sample_lookup, Species %in% spp$mt, Environment == "mata"), Code),
+                      permutations = 10000,
+                      method = "euclidean")
+pF = ad_r_mt_vol$F[1]
+R2 = ad_r_mt_vol$R2[1] 
+p_value = ad_r_mt_vol$`Pr(>F)`[1]
+
+### ENFIT
+vec_fit = envfit(nmds, filter(sample_lookup, Environment %in% c("Mata", "mata"))[4:dim(sample_lookup)[2]])
+vec_coord = as.data.frame(scores(vec_fit, "vectors")) * ordiArrowMul(vec_fit)
+
+anuran_nmds = scores(nmds)$sites %>%
+  as_tibble(rownames = "Code") %>%
+  inner_join(., sample_lookup, by="Code") %>%
+   mutate(Species = gsub("^(\\w)\\w+\\s", "\\1. ", Species)) %>%
+  mutate(Species = gsub("aff. ", "", Species)) %>%
+  mutate(spp = factor(Species)) %>%
+  filter(!grepl("_", Code))
+
+env_nmds = scores(nmds)$sites %>%
+  as_tibble(rownames = "Code") %>%
+  filter(grepl("_", Code))
+
+p_nmds_mt = ggplot() +
+  geom_segment(aes(x = 0, y = 0, xend = NMDS1, yend = NMDS2), 
+               data = vec_coord[c(1,3,6,9),], size =1.5, alpha = 0.6, colour = "grey70") +
+  geom_jitter(data = env_nmds, aes(x=NMDS1, y=NMDS2), size = 2, width = 0.04, height = 0.04,
+              shape = 17, color = "darkgray", alpha = 0.7) +
+  stat_ellipse(data = env_nmds, aes(x=NMDS1, y=NMDS2), level = 0.68, linetype = "dashed", color = "darkgray")+
+  geom_jitter(data = anuran_nmds, aes(x=NMDS1, y=NMDS2, color=spp),size = 3, width = 0.04, height = 0.04,
+              alpha = 0.7) + 
+  stat_ellipse(data = anuran_nmds, aes(x=NMDS1, y=NMDS2,  color=spp),level = 0.68) +
+  scale_color_manual(values = mt_colours) + # Use custom colors
+  
+  annotate('text', x = vec_coord[1,1]+0.15, y = vec_coord[1,2]-0.25, # Coleoptera
+           label = rownames(vec_coord)[1], colour = "grey30", fontface = "bold", size = 5) +
+  annotate('text', x = vec_coord[3,1]+0.05, y = vec_coord[3,2]-0.07, # Araneae
+           label = rownames(vec_coord)[3], colour = "grey30", fontface = "bold", size = 5) +
+  annotate('text', x = vec_coord[6,1]+0.3, y = vec_coord[6,2]+0.15, # Formicidae
+           label = rownames(vec_coord)[6], colour = "grey30", fontface = "bold", size = 5) +
+  annotate('text', x = vec_coord[9,1]-0.01, y = vec_coord[9,2]+0.06, # Heteroptera
+           label = rownames(vec_coord)[9], colour = "grey30", fontface = "bold", size = 5) +
+  
+  annotate('text', x = -1.1, y = -1, hjust = 0, vjust = 0, parse=TRUE, 
+           label = paste("stress == ", round(stress, digits = 2), sep = ""), size = 5)+
+  annotate('text', x = -1.1, y = -1.2, hjust = 0, vjust = 0, parse = TRUE, 
+           label = paste("perMANOVA~", "italic(r)^2 ==", round(R2, 2),"~italic(',')","~italic(p)==~",
+                         round(p_value, digits = 3), sep = ""), size = 5) + 
+  xlab("NMDS1")+ 
+  ylab("NMDS2")+
+  theme_cowplot(font_size = 16, font_family = "Helvetica")+
+  theme(plot.background = element_rect(fill = "white"),
+        legend.title = element_text("Species")) + 
+  panel_border(colour = "black", size=1)
+
+### Eucalyptus
+set.seed(1) # Set seed right before running metaNMDS()
+nmds = metaMDS(data_sample_eu, distance = "euclidean")
+
+stress = nmds$stress
+
+# Ensure data_sample_eu rows match the order of sample_lookup$Code or adjust as needed
+dist_matrix_eu_vol = vegdist(data_sample_eu[order(rownames(data_sample_eu)[grep("_",rownames(data_sample_eu), invert = TRUE)]), ],
+                             method = "euclidean")
+
+# ADONIS
+ad_r_eu_vol = adonis2(dist_matrix_eu_vol ~ Species, 
+                      data = arrange(filter(sample_lookup, Species %in% spp$eu, Environment == "eucalipto"), Code),
+                      permutations = 10000,
+                      method = "euclidean")
+
+### ENFIT
+vec_fit = envfit(nmds, filter(sample_lookup, Environment %in% c("Eucalipto", "eucalipto"))[4:dim(sample_lookup)[2]])
+vec_coord = as.data.frame(scores(vec_fit, "vectors")) * ordiArrowMul(vec_fit)
+
+pF = ad_r_eu_vol$F[1]
+R2 = ad_r_eu_vol$R2[1] 
+p_value = ad_r_eu_vol$`Pr(>F)`[1]
+
+ 
+
+anuran_nmds = scores(nmds)$sites %>%
+  as_tibble(rownames = "Code") %>%
+  inner_join(., sample_lookup, by="Code") %>%
+   mutate(Species = gsub("^(\\w)\\w+\\s", "\\1. ", Species)) %>%
+  mutate(Species = gsub("aff. ", "", Species)) %>%
+  mutate(spp = factor(Species)) %>%
+  filter(!grepl("_", Code))
+
+env_nmds = scores(nmds)$sites %>%
+  as_tibble(rownames = "Code") %>%
+  filter(grepl("_", Code))
+
+p_nmds_eu = ggplot() +
+  geom_segment(aes(x = 0, y = 0, xend = NMDS1, yend = NMDS2), 
+               data = vec_coord[c(1,2,3,6,18),], size =1.2, alpha = 0.6, colour = "grey70") +
+  
+  geom_jitter(data = env_nmds, aes(x=NMDS1, y=NMDS2), size = 2, width = 0.04, height = 0.04, shape = 17,
+              color = "darkgray", alpha = 0.7 )+
+  stat_ellipse(data = env_nmds, aes(x=NMDS1, y=NMDS2), level = 0.68, linetype = "dashed", color = "darkgray") +
+  geom_jitter(data = anuran_nmds, aes(x=NMDS1, y=NMDS2, color=spp),size = 3, width = 0.04, height = 0.04,
+              alpha = 0.7) + 
+  stat_ellipse(data = anuran_nmds, aes(x=NMDS1, y=NMDS2,  color=spp), type = "norm", level = 0.68) +
+  scale_color_manual(values = eu_colours) + # Use custom colors
+  
+  annotate('text', x = vec_coord[1,1], y = vec_coord[1,2]+0.04, # Coleoptera
+           label = rownames(vec_coord)[1], colour = "grey30", fontface = "bold", size = 5) +
+  annotate('text', x = vec_coord[2,1]+0.1, y = vec_coord[2,2]+0.05, # Blattodea
+           label = rownames(vec_coord)[2], colour = "grey30", fontface = "bold", size = 5) + 
+  annotate('text', x = vec_coord[3,1]-0.04, y = vec_coord[3,2]-0.09, # Araneae
+           label = rownames(vec_coord)[3], colour = "grey30", fontface = "bold", size = 5) +
+  annotate('text', x = vec_coord[6,1], y = vec_coord[6,2]-0.05, # Formicidae
+           label = rownames(vec_coord)[6], colour = "grey30", fontface = "bold", size = 5) +
+  annotate('text', x = vec_coord[18,1], y = vec_coord[18,2]+0.1, # Chilopoda
+           label = rownames(vec_coord)[18], colour = "grey30", fontface = "bold", size = 5) +
+  
+  
+  annotate('text', x = -0.7, y = -0.8, hjust = 0, vjust = 0, parse = TRUE,
+           label = paste("stress == ", round(stress, digits = 2), sep = ""), 
+                                size = 5) + 
+  annotate('text', x = -0.7, y = -1, hjust = 0, vjust = 0, parse = TRUE, 
+           label = paste("perMANOVA~", "italic(r)^2 == ", round(R2, 2),"~italic(',')","~italic(p)~",
+                         ifelse(round(p_value, digits = 4) < 0.001,'"< 0.001"',
+                                paste("== ", round(p_value, digits = 3))), sep = ""), 
+                                size = 5) + 
+  xlab("NMDS1")+ 
+  ylab("NMDS2")+
+  theme_cowplot(font_size = 16, font_family = "Helvetica")+
+  theme(plot.background = element_rect(fill = "white"),
+        legend.title = element_text("Species")) +
+  panel_border(colour = "black", size=1)
+```
+
+```{r NMDSplot, fig.height=250/25.4, fig.width=220/25.4, message=FALSE, warning=FALSE}
+plot_grid(p_nmds_mt,p_nmds_eu, nrow = 2)
+```
+
+```{r SaveNMDSPlot, message=FALSE, warning=FALSE, include=FALSE}
+file_path = "Results/"
+p_nmds_mt
+ggsave(filename = paste(file_path, "EN_NICHE_NMDS_MT.png", sep = ""), width = 200/25.4, height = 125/25.4)
+p_nmds_eu
+ggsave(filename = paste(file_path, "EN_NICHE_NMDS_EU.png", sep = ""), width = 200/25.4, height = 125/25.4)
+
+
+```
+
+### Connectance
+
+Connectance is a basic metric that can describe the density of links in a network.
+We know connectance is influenced by network size.
+Using data from @ceronGlobalPatternsAnuran2019 and recently published data (still not summarized), we can test if the values of connectance found are as expected just by the size of the networks.
+
+```{r Connectance, fig.height = 180/25.4, fig.width = 180/25.4}
+### Taking Basix measurses for our networks
+# 1 Network Size
+net_size = list ()
+for (e in c("eu", "mt")) {
+  net_size[[e]] = dim(links[[e]])[1]+dim(links[[e]])[2] # Here defined as the number of nodes in the matrix
+}
+
+# 2 Connectance
+net_connect = list()
+for (e in c("eu", "mt")) {
+  net_connect[[e]] = sum(links[[e]] > 0)/prod(dim(links[[e]])) # Total links / number of possible links
+}
+point_eu = data.frame(size = net_size$eu, conn = net_connect$eu)
+point_mt = data.frame(size = net_size$mt, conn = net_connect$mt)
+
+# Import literature data for connectance
+connec_lit = read.csv("Data/ConnectanceLit_Data.csv", header=T, dec= ",", row.names="id") %>%
+  select(size,conn,type) %>%
+  filter(size > 0, type == "Nat")
+
+connect_plot = ggplot(connec_lit, aes(x = size, y = conn)) +
+  # Add vertical grid lines at specific x-axis values
+  #geom_vline(xintercept = c(20, 30, 40, 50, 60, 70, 80, 90, 100), linetype = "solid", color = "#f2f2f2ff") +
+  # Add horizontal grid lines at specific x-axis values
+  geom_hline(yintercept = c(0.25, 0.5, 0.75), linetype = "solid", color = "#f2f2f2ff",
+             linewidth = 2) + 
+  # Add a smooth line using linear regression
+  geom_smooth(method = "glm", se = FALSE, formula = y ~ log(x), colour = "black",
+              linewidth = 2) + 
+  
+  geom_point(colour = "#323232ff", pch = 20, size = 5, show.legend = TRUE) +  
+  geom_point(data = point_eu, aes(x = size, y = conn), colour = "#EE442f",
+             pch = 15, size = 6, show.legend = TRUE) +
+  geom_point(data = point_mt, aes(x = size, y = conn), colour = "#4fb7d2ff",
+             pch = 17, size = 6, show.legend = TRUE) + 
+  
+  labs(x = "Network Size", y = "Connectance (C)") +
+  ggtitle('')+
+  theme_cowplot(font_size = 20, font_family = "Helvetica") + 
+  scale_y_continuous(expand=c(0,0), limits=c(0,0.95), labels=c(0.0, '', 0.1, '', 0.2, '', 0.3, '', 0.4, '', 0.5,
+                                                               '' ,0.6, '', 0.7, '', 0.8, '', 0.9), 
+                     breaks=c(0.0, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5,
+                                                    0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9)) +
+  theme(plot.background = element_rect(fill = "white"),
+    legend.title = element_blank()
+  ) 
+```
+
+```{r ResidualsConnectance, results='hold'}
+# Fit a Model to the Literature data
+nat_fit = glm(conn ~ log(size), data = connec_lit, family = gaussian())
+summary(nat_fit)
+
+# Predicted connectance from the model
+pred_mt = predict(nat_fit, newdata = point_mt, type = "response")
+pred_eu = predict(nat_fit, newdata = point_eu, type = "response")
+
+# Residuals
+resid_mt = point_mt$conn - pred_mt
+resid_eu = point_eu$conn - pred_eu
+
+# Standard error of residuals from the model
+se_res = sd(residuals(nat_fit))
+
+# t-tests
+t_mt = resid_mt/se_res
+t_eu = resid_eu/se_res
+
+p_value_mt <- 2 * pt(-abs(t_mt), df = length(residuals(nat_fit)) - 1)
+p_value_eu <- 2 * pt(-abs(t_eu), df = length(residuals(nat_fit)) - 1)
+
+# Results
+cat("Atlantic Forest: t = ",t_mt, "p_value = ", p_value_mt,"<br>",
+     "Eucalyptus: t = ",t_eu, "p_value = ", p_value_eu)
+
+```
+
+```{r SaveConnectace, message=FALSE, warning=FALSE, include=FALSE}
+file_path = "Results/"
+ggsave(filename = paste(file_path, "EN_CONEC_LITERATURE_FITTED.png", sep = ""), width = 7, height = 7)
+```
+
+### Modularity
+
+```{r igraph, echo=T, message=FALSE, warning=FALSE, results="hide" }
+library(igraph)
+```
+
+```{r BootStrapNullModel, warning=FALSE}
+freq_eu = as.matrix(read.csv("Data/freq_eu_diet_matrix_final.csv", header = T, 
+                             row.names = 1, check.names = FALSE))
+freq_mt = as.matrix(read.csv("Data/freq_mt_diet_matrix_final.csv", header = T, 
+                             row.names = 1, check.names = FALSE))
+links_f = list(eu = freq_eu, mt = freq_mt)
+spp = list(eu = colnames(links_f$eu), mt = colnames(links_f$mt))
+
+### Organizing Prey Items Stomach Data 
+rownames(links_f$eu) = gsub("\\.", " ", rownames(links_f$eu))
+rownames(links_f$mt) = gsub("\\.", " ", rownames(links_f$mt))
+
+
+data_filt = read.csv("Data/Data_filt_MW_SVL.csv", header=T, dec= ",", row.names = NULL)
+data_filt = data_filt[!data_filt$Volume == 0, ]
+
+# Remove Unwanted Prey Types
+unwanted_prey = c("Apenas substrato", "Arthropoda", "Semente", "Semente de capim", "Vazio", "Insecta", 
+                  "Não identificado","Orthoptera", "Diptera", "Arachnida", "Pterygota", "Larva", "Hemiptera",
+                  "Mollusca")
+data_filt = data_filt[!data_filt$Class.inferior %in% unwanted_prey, ] %>%
+filter( (Species %in% spp$eu & Environment == "eucalipto") | 
+          (Species %in% spp$mt & Environment == "mata") ) 
+
+data_filt_eu = filter(data_filt, Environment == "eucalipto")
+data_filt_mt = filter(data_filt, Environment == "mata")
+
+set.seed(1)
+source("Source/quant_to_count.R")
+data_count_eu = quant.to.count(data_filt_eu, "Quantity") %>% select(Class.inferior, Ind.Volume)
+data_count_mt = quant.to.count(data_filt_mt, "Quantity") %>% select(Class.inferior, Ind.Volume)
+
+source("Source/bootstrap_diet_vol.R")
+sm_boot_eu = bootstrap.diet.vol(links_f$eu, data_count_eu, nsim = 10000)
+sm_boot_mt = bootstrap.diet.vol(links_f$mt, data_count_mt, nsim = 10000)
+
+
+boot_mod_mt = apply(sm_boot_mt, MARGIN = 3, function(x) 
+  DIRT_LPA_wb_plus(x, mini = 3, reps = 20)$modularity)
+boot_mod_eu = apply(sm_boot_eu, MARGIN = 3, function(x) 
+  DIRT_LPA_wb_plus(x, mini = 3, reps = 20)$modularity)
+
+links_f_eu = as.matrix(read.csv("Data/vol_eu_diet_matrix_final.csv", header = T,
+                                row.names = 1, check.names = FALSE))
+links_f_mt = as.matrix(read.csv("Data/vol_mt_diet_matrix_final.csv", header = T,
+                                row.names = 1, check.names = FALSE))
+links_f = list(eu = links_f_eu, mt = links_f_mt)
+
+mod_mt = DIRT_LPA_wb_plus(links_f$mt, mini = 3, reps = 20)
+mod_eu = DIRT_LPA_wb_plus(links_f$eu, mini = 3, reps = 20)
+
+# observed diet is significantly different to random sampling?
+p1_mt = (length(which(boot_mod_mt >= mod_mt$modularity))+1)/(10000+1) 
+z1_mod_mt = (mod_mt$modularity - mean(boot_mod_mt))/sd(boot_mod_mt)
+
+# observed diet is significantly different to random sampling?
+p1_eu = (length(which(boot_mod_eu >= mod_eu$modularity))+1)/(10000+1) 
+z1_mod_eu = (mod_mt$modularity - mean(boot_mod_eu))/sd(boot_mod_eu)
+```
+
+```{r ModResultText Boot, echo=FALSE, message=FALSE, warning=FALSE, results='hold'}
+cat("The modularity results are as follows:<br>")
+cat(paste("Atlantic Forest Modularity:", round(mod_mt$modularity, digits = 3),
+          "nm mean:", round(mean(boot_mod_mt), digits = 3),
+          "p-value:", round(p1_mt, digits = 3),
+          "; z-score:", round(z1_mod_mt, digits = 3), "<br>"))
+cat(paste("Eucalyptus Modularity:", round(mod_eu$modularity, digits = 3),
+          "nm mean:", round(mean(boot_mod_eu), digits = 3),
+          "p-value:", round(p1_eu, digits = 3), 
+          "; z-score:", round(z1_mod_eu, digits = 3), "<br>"))
+```
+
+```{r ModularityPlots, fig.height = 180/25.4, fig.height = 180/25.4}
+### Organize the Modules Assigned by DIRTLPAwb+
+# Rows than columns
+mod_list = list(eu = c(mod_eu$Row_labels, mod_eu$Col_labels),
+              mt = c(mod_mt$Row_labels, mod_mt$Col_labels))
+
+# Changing the name of module 7 
+mod_list$eu[mod_list$eu == 7] = 4
+mod_list$mt = match(mod_list$mt, sort(unique(mod_list$mt)))
+
+
+graphs = list()
+group_ind = list()
+for (e in c("eu", "mt")) {
+  l = links[[e]]
+  l = (t(t(l)/colSums(l)))*100
+  l = apply(l, MARGIN = 2, function(x)
+    ifelse(0 < x & x < 1, 1, ifelse(x > 10, 10, x)) 
+    )
+                                 
+  graphs[[e]] = graph_from_biadjacency_matrix(l, weighted = TRUE)
+  V(graphs[[e]])$Modules = mod_list[[e]]
+  group_ind[[e]] = split(V(graphs[[e]])$name, f = factor(V(graphs[[e]])$Modules))
+}
+
+###----- Plot the Networks -----------------------------------------------------
+# Shape
+for (e in c("eu", "mt")) {
+  go = graphs[[e]]
+  vertex_attr(go)$vertex.shape = rep("square", length(V(go))) #coloring all the nodes orange
+  vertex_attr(go)$vertex.shape[grep(pattern = "FALSE", vertex_attr(go)$type)] = "circle"
+  vertex_attr(go)$vertex.shape # checking the vertex.shape vector
+  graphs[[e]] = go
+}
+
+colrs = list()
+
+group_ind[["mt"]]
+colrs[["mt"]] = c("#007a40ff", "#f41234ff", "#e08417ff", "#81d881ff","#0f80dcff")
+V(graphs[["mt"]])$color = colrs[["mt"]][V(graphs[["mt"]])$Modules]
+
+group_ind[["eu"]]
+colrs[["eu"]] = c("#f41234ff","#e08417ff", "#007a40ff", "#0f80dcff")
+V(graphs[["eu"]])$color = colrs[["eu"]][V(graphs[["eu"]])$Modules]
+
+
+plot(graphs[["mt"]], vertex.label = NA,
+     layout = layout_nicely,
+     vertex.shape = V(graphs[["mt"]])$vertex.shape,
+     vertex.color= V(graphs[["mt"]])$color,
+     edge.width=(edge_attr(graphs[["mt"]])$weight),
+     edge.color="grey50",
+     main = "Atlantic Forest") 
+
+plot(graphs[["eu"]], vertex.label = NA,
+     layout = layout_nicely,
+     vertex.shape = V(graphs[["eu"]])$vertex.shape,
+     vertex.color= V(graphs[["eu"]])$color,
+     edge.width=(edge_attr(graphs[["eu"]])$weight),
+     edge.color="grey50",
+     main = "Eucalyptus")
+
+
+
+```
+
+```{R DescribeModules, results = "hold"}
+### Atlantic Forest
+mod_description_mt = list()
+n = 1
+# For every module
+for (m in group_ind[["mt"]]) {
+  m = unlist(m)
+  # For every prey in the module
+  for (p in m[m %in% rownames(links$mt)]){
+    # Sum the link between each prey and its predators in the module
+    sum = sum(links$mt[p, m[m %in% colnames(links$mt)]])
+    # Store the result
+    mod_description_mt[[as.character(n)]][[p]] = sum
+  }
+  n = n +1
+}
+### Eucalyptus
+mod_description_eu = list()
+n = 1
+# For every module
+for (m in group_ind[["eu"]]) {
+  m = unlist(m)
+  # For every prey in the module
+  for (p in m[m %in% rownames(links$eu)]){
+    # Sum the link between each prey and its predators in the module
+    sum = sum(links$eu[p, m[m %in% colnames(links$eu)]])
+    # Store the result
+    mod_description_eu[[as.character(n)]][[p]] = sum
+  }
+  n = n +1
+}
+
+cat("The primary prey in each module are as it follows:<br>")
+cat("Atlantic Forest:<br>")
+print(mod_description_mt)
+cat("Eucalyptus:<br>")
+print(mod_description_eu)
+```
+
+```{R SaveModularityGraph, message=FALSE, warning=FALSE, include=FALSE}
+png("Results/EN_WMOD_GRAPH_MT.png")
+plot(graphs[["mt"]], vertex.label = NA,
+     layout = layout_with_fr,
+     vertex.shape = V(graphs[["mt"]])$vertex.shape,
+     vertex.color= V(graphs[["mt"]])$color,
+     edge.color="grey50",
+     main = "Atlantic Forest")
+dev.off()
+
+png("Results/EN_WMOD_GRAPH_EU.png")
+plot(graphs[["eu"]], vertex.label = NA,
+     layout = layout_with_fr,
+     vertex.shape = V(graphs[["eu"]])$vertex.shape,
+     vertex.color= V(graphs[["eu"]])$color,
+     edge.color="grey50",
+     main = "Eucalyptus")
+dev.off()
+
+```

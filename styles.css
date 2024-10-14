@@ -1,0 +1,16 @@
+
+/* Define font size for regular text */
+p {
+  font-size: 18px; /* Adjust the size as needed */
+}
+
+/* Define font size for code chunks */
+pre {
+  font-size: 14px; /* Adjust the size as needed */
+}
+
+.main-container {
+  max-width: 70vw !important;
+  margin-left: auto;
+  margin-right: auto;
+}
