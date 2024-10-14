@@ -783,110 +783,17 @@ cat(paste("Eucalyptus Prey:",
 
 Volume of each prey item was approximated with the ellipsoid formula [@dunhamRealizedNicheOverlap1983].
 $$V = \dfrac{4 \pi A B^2}{3}, $$ where A = the length of the prey e B = the width of the prey.
-### Dietary Diversity
-
-```{r DietaryRichness, fig.height=140/25.4, fig.width=280/25.4, results='hold'}
-links_eu = as.matrix(read.csv("Data/vol_eu_diet_matrix_final.csv", header = T, row.names = 1, check.names = FALSE))
-links_mt = as.matrix(read.csv("Data/vol_mt_diet_matrix_final.csv", header = T, row.names = 1, check.names = FALSE))
-links = list(eu = links_eu, mt = links_mt)
-
-an_sh_diet_mt = specnumber(links$mt[,!spp$mt %in% spp$beta], MARGIN = 2)
-an_sh_diet_mt_beta = specnumber(links$mt[,spp$beta], MARGIN = 2)
-an_sh_diet_eu = specnumber(links$eu[,spp$eu[!spp$eu %in% spp$mt]], MARGIN = 2)
-an_sh_diet_eu_beta = specnumber(links$eu[,spp$eu[spp$eu %in% spp$mt]], MARGIN = 2)
-diet_sh_df = data.frame(Env = c(rep("Atlantic Forest", length(an_sh_diet_mt)),
-                              rep("Atlantic Forest Beta", length(an_sh_diet_mt_beta)),
-                              rep("Eucalyptus", length(an_sh_diet_eu)),
-                              rep("Eucalyptus Beta", length(an_sh_diet_eu_beta))
-                              ),
-                      sh = c(an_sh_diet_mt, an_sh_diet_mt_beta, an_sh_diet_eu, an_sh_diet_eu_beta)
-                      )
-
-### Boxplot Anuran Diversity
-an_sh_plot = ggplot(diet_sh_df, aes(x = Env, y = sh, fill=Env, col=Env)) +
-  geom_boxplot(alpha=0.2, outliers = FALSE, position = "dodge2") +  # Create the boxplot
-  geom_point(position = position_jitterdodge(dodge.width = 0.75, jitter.width = 0.15),
-             size = 2, shape = 16, alpha = 0.3)+ # Plot all individual points
-  #scale_fill_manual(values = env_compare_cl) +
-  #scale_color_manual(values = env_compare_cl) + 
-  xlab("")+ 
-  ylab("Richness")+
-  ggtitle('')+
-  theme_cowplot(font_size = 16, font_family = "Helvetica")+ 
-  theme(
-    legend.title = element_blank(),
-    legend.position = c(0.99, 0.99),
-    legend.justification = c(1,1))
-
-diet_sh_model = kruskal.test(sh ~ Env, data = diet_sh_df)
-print(an_sh_plot)
-cat("Atlantic Forest mean H:\n")
-cat(mean(an_sh_diet_mt),"\u00B1",sd(an_sh_diet_mt),"\n")
-cat("Atlantic Forest Beta mean H:\n")
-cat(mean(an_sh_diet_mt_beta),"\u00B1",sd(an_sh_diet_mt_beta),"\n")
-cat("Eucalyptus mean H:\n")
-cat(mean(an_sh_diet_eu),"\u00B1",sd(an_sh_diet_eu),"\n")
-cat("ANOVA Summary\n")
-summary(diet_sh_model)
-cat("\n```")
-
-```
-
-```{r DietaryDiversityShannon, fig.height=132/25.4, fig.width=180/25.4, results='hold'}
-links_eu = as.matrix(read.csv("Data/vol_eu_diet_matrix_final.csv", header = T, row.names = 1, check.names = FALSE))
-links_mt = as.matrix(read.csv("Data/vol_mt_diet_matrix_final.csv", header = T, row.names = 1, check.names = FALSE))
-links = list(eu = links_eu, mt = links_mt)
-
-an_sh_diet_mt = diversity(links$mt[,!spp$mt %in% spp$beta], MARGIN = 2)
-an_sh_diet_mt_beta = diversity(links$mt[,spp$beta], MARGIN = 2)
-an_sh_diet_eu = diversity(links$eu[,spp$eu[!spp$eu %in% spp$mt]], MARGIN = 2)
-an_sh_diet_eu_beta = diversity(links$eu[,spp$eu[spp$eu %in% spp$mt]], MARGIN = 2)
-diet_sh_df = data.frame(Env = c(rep("Atlantic Forest", length(an_sh_diet_mt)),
-                              rep("Atlantic Forest Beta", length(an_sh_diet_mt_beta)),
-                              rep("Eucalyptus", length(an_sh_diet_eu)),
-                              rep("Eucalyptus Beta", length(an_sh_diet_eu_beta))
-                              ),
-                      sh = c(an_sh_diet_mt, an_sh_diet_mt_beta, an_sh_diet_eu, an_sh_diet_eu_beta)
-                      )
-
-### Boxplot Anuran Diversity
-an_sh_plot = ggplot(diet_sh_df, aes(x = Env, y = sh, fill=Env, col=Env)) +
-  geom_boxplot(alpha=0.2, outliers = FALSE, position = "dodge2") +  # Create the boxplot
-  geom_point(position = position_jitterdodge(dodge.width = 0.75, jitter.width = 0.15),
-             size = 2, shape = 16, alpha = 0.3)+ # Plot all individual points
-  #scale_fill_manual(values = env_compare_cl) +
-  #scale_color_manual(values = env_compare_cl) + 
-  xlab("")+ 
-  ylab(bquote("Shannon Diversity"~italic("H'")))+
-  ggtitle('')+
-  theme_cowplot(font_size = 16, font_family = "Helvetica")+ 
-  theme(
-    legend.position = c(1, 0.99),
-    legend.justification = c(1,1)
-    )
-
-diet_sh_model = kruskal.test(sh ~ Env, data = diet_sh_df)
-print(an_sh_plot)
-cat("Atlantic Forest mean H:\n")
-cat(mean(an_sh_diet_mt),"\u00B1",sd(an_sh_diet_mt),"\n")
-cat("Atlantic Forest Beta mean H:\n")
-cat(mean(an_sh_diet_mt_beta),"\u00B1",sd(an_sh_diet_mt_beta),"\n")
-cat("Eucalyptus mean H:\n")
-cat(mean(an_sh_diet_eu),"\u00B1",sd(an_sh_diet_eu),"\n")
-cat("ANOVA Summary\n")
-summary(diet_sh_model)
-cat("\n```")
-
-```
 
 ### Sp50
-
 One way to look into diet generalization is to see how many prey types compromise the core of each species diet.
 We can do this, by calculating the $sp50$ wich gives us how many prey types comprise the main 50% of the diet [@hutchinsonDietaryAbundanceDistributions2022].
 Here we do it by analyzing the proportional contribution of prey volume to the diet Beyond this, we will we comparing not just Atlantic Forest species against Eucalyptus, but also the subset of species in Atlantic Forest that are in Eucalyptus.
 
 ```{r Sp50 Anurans, fig.height=100/25.4, fig.width=140/25.4, results='hold'}
 source("Source/sp50.R")
+links_eu = as.matrix(read.csv("Data/vol_eu_diet_matrix_final.csv", header = T, row.names = 1, check.names = FALSE))
+links_mt = as.matrix(read.csv("Data/vol_mt_diet_matrix_final.csv", header = T, row.names = 1, check.names = FALSE))
+links = list(eu = links_eu, mt = links_mt)
 
 spp_diet = list()
 sp50_env_spp = list()
@@ -943,16 +850,13 @@ cat("\n```")
 #TukeyHSD(sp50_model)
 ```
 
-### Ranked Electivity
+### Dissimilarity
 
-Another way to look into generalization, is to see if species prey upon whats available in the environemnt stochastically, or if they select for their prey.
-On approach to look into this is Jacob's Electivity (*D*) [@jacobsQuantitativeMeasurementFood1974]: $$ \begin{equation}
-D_i= \dfrac{r_i-p_i}{r_i+p_i-2r_ip_i}
-\end{equation}, $$ where $r$ is the proportion in the diet and $p$ in the environment.
-
-For this, we will only look at the more important prey categories for each species.
-Informed by the sp50 we picked ...
-
+Beyond selection for a particular species, diet composition can expose multiple preferences and avoidances when compared to prey availability.
+To investigate this, we can look into the difference between diet and environment for each prey type proportion.
+Dissimilarity is analyzed with the Jaccard Dissimilarity $D$ [@faith_etal87a].
+Jaccard index is computed as $2B/(1+B)$, where $B$ is the Bray-Curtis dissimilarity.
+$$ B_{ij}=\dfrac{\sum_i{\mid x_{ij}-x_{ik} \mid}}{(x_{ij}+x_{ik})} $$
 ```{r RankElecAnalyzes}
 ### Organizing Prey Availability Data
 data_PA = read.csv("Data/pa_sample_composition_vol.csv", header=T, check.names = FALSE, row.names=NULL)
@@ -1049,122 +953,6 @@ for (e in c("mt", "beta", "eu")) {
   }
 }
 ```
-
-```{r SAD RESULT, results='hold'}
-# Top 10 SAD Atlantic Forest
-res_sad_mt = filter(PA_SAD_df, Env == "mt")
-cat("Atlantic Forest SAD\n")
-print(res_sad_mt[order(res_sad_mt$VolProp, decreasing = T), ][1:10,c(3,4)])
-cat("\n```")
-
-# Top 10 SAD Eucalyptus
-res_sad_eu = filter(PA_SAD_df, Env == "eu")
-cat("Eucalyptus SAD\n")
-print(res_sad_eu[order(res_sad_eu$VolProp, decreasing = T), ][1:10,c(3,4)])
-cat("\n```")
-```
-
-```{r PlotElectivityRank1, fig.height=140/25.4, fig.width=280/25.4}
-prey_1 = list()
-for (e in c("eu", "mt")) {
-  for (sp in spp[[e]]) {
-    prey_1[[e]][[sp]]= SAD_DAD[[e]][[sp]] %>%
-      filter(Type == "PIS" & VolRank == 1) %>%
-      select(Prey) %>% unlist() %>% as.vector()
-  }
-}
-
-df_1 = tibble(Species = factor(), Env = factor(), D = double() )
-for (e in c("mt", "eu")) {
-  if (e == "mt") {
-    for (sp in spp$mt) {
-      temp_df = elec_df %>%
-        filter(Env == e & Species == sp & Prey == prey_1[[e]][[sp]]) %>%
-        select(-Prey) 
-      df_1 = bind_rows(df_1, temp_df)
-    }
-  }
-  if (e == "eu") {
-    for (sp in spp$eu) {
-      temp_df = elec_df %>%
-        filter(Env == e & Species == sp & Prey == prey_1[[e]][[sp]]) %>%
-        select(-Prey) 
-      df_1 = bind_rows(df_1, temp_df)
-    }
-  }
-} 
-
-                                 
-
-# Add an average boxplot to all species sum
-df_1 = bind_rows(df_1, tibble(
-  Species = "All", Env = df_1$Env, D = df_1$D
-))
-
-# Filter only species in both environments to be ploted
-df_1 = filter(df_1, Species %in% c("All", spp$beta))
-
-# Modify Labels for better plotting
-df_1 = df_1 %>%
-  mutate(Species = gsub("^(\\w)\\w+\\s", "\\1. ", Species)) %>%
-  mutate(Species = gsub("aff. ", "", Species))
-
-df_1$Env = factor(ifelse(df_1$Env == "eu", "Eucalyptus", 
-                          ifelse(df_1$Env == "mt", "Atlantic Forest",df_1$Env)
-                                 ))
-
-means = aggregate(D ~ Env, data = df_1, FUN = mean)
-p_elec_rk1 = ggplot(df_1, aes(x = Species, y = D, fill = Env, col = Env)) +
-  geom_boxplot(alpha=0.25, outliers = FALSE, position = "dodge2") +  # Create the boxplot
-  geom_point(position = position_jitterdodge(dodge.width = 0.75, jitter.width = 0.1),
-             size = 2, shape = 16, alpha = 0.35)+ # Plot all individual points
-  scale_fill_manual(values = env_cl) +
-  scale_color_manual(values = env_cl) +
-  xlab("Species")+ 
-  ylab(bquote(~italic("D")["electivity"]))+
-  ggtitle('')+
-  theme_cowplot(font_size = 16, font_family = "Helvetica")+ 
-  theme(
-    legend.title=element_blank(),
-    legend.position.inside = c(0.81, 0.92))
-
-print(p_elec_rk1)   
-```
-
-```{r ElectivityAnova, results='hold'}
-df_1_aov = df_1 %>%
-  filter(Species != "All")
-
-df_1_model = kruskal.test(D ~ Env, data = df_1_aov)
-cat("ANOVA Summary\n")
-print(df_1_model)
-cat("\n```")
-```
-
-```{r ElevtiviryPairwiseTtest, results='hold'}
-spp$beta_short_pair = gsub("^(\\w)\\w+\\s", "\\1. ", spp$beta)
-
-df_1_pair = data.frame(
-  Species = spp$beta_short_pair,
-  MT = c(filter(df_1, (Species %in% spp$beta_short_pair & Env == "Atlantic Forest")) %>% 
-      select(D) %>% as.vector() %>% unlist()),
-  EU = c(filter(df_1, (Species %in% spp$beta_short_pair & Env == "Eucalyptus")) %>% 
-      select(D) %>% as.vector() %>% unlist())
-     )
-
-df_1_res = t.test(df_1_pair$MT, df_1_pair$EU, mu = 0, alternative = "two.sided", paired = TRUE)
-print(df_1_res)
-
-
-```
-
-### Dissimilarity
-
-Beyond selection for a particular species, diet composition can expose multiple preferences and avoidances when compared to prey availability.
-To investigate this, we can look into the difference between diet and environment for each prey type proportion.
-Dissimilarity is analyzed with the Jaccard Dissimilarity $D$ [@faith_etal87a].
-Jaccard index is computed as $2B/(1+B)$, where $B$ is the Bray-Curtis dissimilarity.
-$$ B_{ij}=\dfrac{\sum_i{\mid x_{ij}-x_{ik} \mid}}{(x_{ij}+x_{ik})} $$
 
 ```{r DisparityImages, fig.height=140/25.4, fig.width=140/25.4, message=FALSE, warning=FALSE}
 source("Source/diet_gen.R")
