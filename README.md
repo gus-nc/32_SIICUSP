@@ -2,8 +2,7 @@
 
 This are all the files used for the poster entitled "Silviculture simplifies anuran-prey networks and reduces niche overlap".
 
-The poster_final.pdf is the original file for the final poster version.
-The supplementary_methods.pdf contains supplementary information on the presented research, including the description of the null model used for the network modularity analysis.
+The poster_final.pdf is the original file for the final poster version and the abstracts are included in English (Abstract_SIICUSP.pdf) and Portuguese (Resumo_SIICUSP.pdf). The supplementary_methods.pdf contains supplementary information on the presented research, including the description of the null model used for the network modularity analysis.
 
 The 32SIICUSP_code_results.Rmd contains the code used for the main and supplementary results, while the 32SIICUSP_code_results.html file is a rendered version of the markdown file.
 
