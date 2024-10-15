@@ -7,7 +7,9 @@ The supplementary_methods.pdf contains supplementary information on the presente
 
 The 32SIICUSP_code_results.Rmd contains the code used for the main and suplementary results, while the 32SIICUSP_code_results.html file is a rendered version of the markdown file.
 
-### Authors [Augusto Carvalho](http://lattes.cnpq.br/8032444813126291), [Rosana Paschoalino](http://lattes.cnpq.br/9174513331843439), [Matthew Hutchinson](https://www.herdlab.org/) & [Marcio R. C. Martins](http://lattes.cnpq.br/2694901201572235)
+### Authors
+
+[Augusto Carvalho](http://lattes.cnpq.br/8032444813126291), [Rosana Paschoalino](http://lattes.cnpq.br/9174513331843439), [Matthew Hutchinson](https://www.herdlab.org/) & [Marcio R. C. Martins](http://lattes.cnpq.br/2694901201572235)
 
 ### Acknowledgments
 
