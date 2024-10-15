@@ -9,4 +9,6 @@ The 32SIICUSP_code_results.Rmd contains the code used for the main and suplement
 
 ### Authors [Augusto Carvalho](http://lattes.cnpq.br/8032444813126291), [Rosana Paschoalino](http://lattes.cnpq.br/9174513331843439), [Matthew Hutchinson](https://www.herdlab.org/) & [Marcio R. C. Martins](http://lattes.cnpq.br/2694901201572235)
 
-### Acknowledgments Paulo Roberto Guimarães Jr., Dr. Daniela Pinto-Coelho; to the company Melhoramentos Ltda for supporting this project; to colleagues who assisted in data collection; to the São Paulo Research Foundation (FAPESP), processes nº 2023/16700-3 and 2023/06268-7.
+### Acknowledgments
+
+Paulo Roberto Guimarães Jr., Dr. Daniela Pinto-Coelho; to the company Melhoramentos Ltda for supporting this project; to colleagues who assisted in data collection; to the São Paulo Research Foundation (FAPESP), processes nº 2023/16700-3 and 2023/06268-7.
