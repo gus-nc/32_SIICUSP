@@ -1526,7 +1526,7 @@ for (e in c("eu", "mt")) {
   l = links[[e]]
   l = (t(t(l)/colSums(l)))*100
   l = apply(l, MARGIN = 2, function(x)
-    ifelse(0 < x & x < 1, 1, ifelse(x > 10, 10, x)) 
+    ifelse(0 < x & x < 1, 2, ifelse(x > 8, 8, x)) 
     )
                                  
   graphs[[e]] = graph_from_biadjacency_matrix(l, weighted = TRUE)
@@ -1555,13 +1555,14 @@ colrs[["eu"]] = c("#f41234ff","#e08417ff", "#007a40ff", "#0f80dcff")
 V(graphs[["eu"]])$color = colrs[["eu"]][V(graphs[["eu"]])$Modules]
 
 
+set.seed(2002)
 plot(graphs[["mt"]], vertex.label = NA,
      layout = layout_nicely,
      vertex.shape = V(graphs[["mt"]])$vertex.shape,
      vertex.color= V(graphs[["mt"]])$color,
      edge.width=(edge_attr(graphs[["mt"]])$weight),
      edge.color="grey50",
-     main = "Atlantic Forest") 
+     main = "Atlantic Forest")
 
 plot(graphs[["eu"]], vertex.label = NA,
      layout = layout_nicely,
@@ -1615,20 +1616,23 @@ print(mod_description_eu)
 ```
 
 ```{R SaveModularityGraph, message=FALSE, warning=FALSE, include=FALSE}
-png("Results/EN_WMOD_GRAPH_MT.png")
+set.seed(2002)
+png("Results/EN_WMOD_GRAPH_MT.png", width = 1000, height = 1000)
 plot(graphs[["mt"]], vertex.label = NA,
-     layout = layout_with_fr,
+     layout = layout_nicely,
      vertex.shape = V(graphs[["mt"]])$vertex.shape,
      vertex.color= V(graphs[["mt"]])$color,
+     edge.width=(edge_attr(graphs[["mt"]])$weight),
      edge.color="grey50",
      main = "Atlantic Forest")
 dev.off()
 
-png("Results/EN_WMOD_GRAPH_EU.png")
+png("Results/EN_WMOD_GRAPH_EU.png", width = 1000, height = 1000)
 plot(graphs[["eu"]], vertex.label = NA,
-     layout = layout_with_fr,
+     layout = layout_nicely,
      vertex.shape = V(graphs[["eu"]])$vertex.shape,
      vertex.color= V(graphs[["eu"]])$color,
+     edge.width=(edge_attr(graphs[["eu"]])$weight),
      edge.color="grey50",
      main = "Eucalyptus")
 dev.off()
