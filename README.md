@@ -1,4 +1,4 @@
-[![DOI](https://sandbox.zenodo.org/badge/872205014.svg)](https://handle.stage.datacite.org/10.5072/zenodo.137022)
+[![DOI](https://zenodo.org/badge/872205014.svg)](https://doi.org/10.5281/zenodo.14226342)
 
 # 32_SIICUSP: Silviculture simplifies anuran-prey networks and reduces niche overlap
 
